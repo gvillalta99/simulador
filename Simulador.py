@@ -29,7 +29,7 @@ initial_states_data = {
 N_INITIAL_STATES = len(initial_states_data) # Deve ser 17
 
 # Nomes dos estados para rótulos de matriz
-STATE_LABELS = [f"{id}: {data['Nome'][:20]}..." for id, data in initial_states_data.items()]
+STATE_LABELS = [f"{id}: {data['Nome'][:30]}..." for id, data in initial_states_data.items()]
 
 
 trajectories_options = {
@@ -41,13 +41,26 @@ trajectories_options = {
     "Não estuda nem trabalha": 6
 }
 
-# --- Inicialização do Session State ---
+# --- INICIALIZAÇÃO GLOBAL DO SESSION STATE ---
 if 'editable_salaries' not in st.session_state:
     st.session_state.editable_salaries = {
         state_id: data["Renda"] for state_id, data in initial_states_data.items()
     }
 if 'custom_transition_matrices' not in st.session_state:
-    st.session_state.custom_transition_matrices = {} # Armazenará {trajectory_name: np.array}
+    st.session_state.custom_transition_matrices = {}
+
+default_growth_configs = {
+    'grande_empresa_ti': 0.07,
+    'pequena_empresa_startup_ti': 0.05,
+    'servico_publico': 0.02,
+    'outra_area': 0.03,
+    'bonus_experiencia_marco_anos': 3, 
+    'bonus_experiencia_valor_pc': 0.005, 
+    'aumento_promocao_pc': 0.10 
+}
+if 'growth_configs' not in st.session_state:
+    st.session_state.growth_configs = default_growth_configs.copy()
+# --- FIM DA INICIALIZAÇÃO GLOBAL DO SESSION STATE ---
 
 # --- Funções do Modelo de Markov ---
 def get_default_base_transition_matrix(trajectory_name, n_total_states):
@@ -133,34 +146,147 @@ def normalize_matrix(matrix_df):
                  P_array[i, i] = 1.0
     return pd.DataFrame(P_array, index=matrix_df.index, columns=matrix_df.columns)
 
+# --- Funções Auxiliares para Lógica de Carreira Dinâmica (Fase 1) ---
+def get_state_category_for_growth(state_id, df_states_info):
+    # Mapeia o estado para uma categoria de crescimento salarial
+    nome_estado = df_states_info.loc[state_id, "Nome"].lower()
+    if state_id in [10, 11]: # Grande empresa, Empresa global
+        return "grande_empresa_ti"
+    elif state_id in [0, 2, 3, 8, 9]: # Técnico, Fac. Comp. Trab., Pequena Emp., Startup
+        return "pequena_empresa_startup_ti"
+    elif state_id in [12, 13, 14]: # Serviço Público Mun, Est, Fed
+        return "servico_publico"
+    elif state_id == 16: # Trabalhar em outra área (não TI)
+        return "outra_area"
+    elif state_id == 4: # Outra faculdade (trabalhando)
+         return "outra_area" 
+    return "sem_crescimento"
 
-# ... (run_simulation e funções de plotagem: plot_expected_income, etc. - sem grandes mudanças,
-# mas precisam usar N_CURRENT_STATES e o df_states correto)
-@st.cache_data # Cache para otimizar
-def run_simulation(initial_state_idx, base_P, current_states_df, n_simulations_run, n_years_run, n_total_states_run):
+def state_allows_growth(state_id, df_states_info):
+    return get_state_category_for_growth(state_id, df_states_info) != "sem_crescimento"
+
+def is_promotion(previous_state_id, current_state_id, df_states_info):
+    if not state_allows_growth(previous_state_id, df_states_info) or not state_allows_growth(current_state_id, df_states_info) :
+        return False 
+    if previous_state_id in [0,8,9] and current_state_id in [10,11]: return True
+    if previous_state_id == 12 and current_state_id in [13,14]: return True
+    if previous_state_id == 13 and current_state_id == 14: return True
+    if previous_state_id in [0,2,3] and current_state_id in [8,9,10,11]: return True
+    return False
+
+@st.cache_data
+def run_simulation(initial_state_idx, base_P, current_states_df, 
+                   n_simulations_run, n_years_run, n_total_states_run,
+                   growth_configs): # Novas configurações de crescimento
+    
     all_paths = np.zeros((n_simulations_run, n_years_run + 1), dtype=int)
     all_incomes = np.zeros((n_simulations_run, n_years_run + 1))
+    
+    # Para análise futura, podemos querer armazenar o histórico final dos contadores
+    final_agent_histories = [] 
 
     for sim in range(n_simulations_run):
-        current_state = initial_state_idx
-        all_paths[sim, 0] = current_state
-        all_incomes[sim, 0] = current_states_df.loc[current_state, "Renda"]
+        # Inicializa variáveis do agente
+        agent_vars = {
+            'salario': current_states_df.loc[initial_state_idx, "Renda"],
+            'exp_TI': 0,
+            'exp_outra_area': 0,
+            'desemp_acum': 0,
+            'fora_TI_acum': 0, # Anos em estados que não são explicitamente "na área de TI"
+            'anos_no_estado_cont': 0
+        }
+        
+        current_agent_state = initial_state_idx
+        all_paths[sim, 0] = current_agent_state
+        all_incomes[sim, 0] = agent_vars['salario']
+        
+        previous_state_for_counter = -1 # Para rastrear mudança de estado para anos_no_estado_cont
 
-        for year in range(n_years_run):
-            probabilities = base_P[current_state, :]
+        for year_idx in range(n_years_run): # Loop de 0 a N_YEARS-1 (total N_YEARS iterações)
+            # Estado em que o agente *passou* o ano `year_idx`
+            state_spent_this_year = all_paths[sim, year_idx]
+            salary_at_start_of_this_year = all_incomes[sim, year_idx]
+
+            # 1. Atualizar Contadores de Histórico com base no `state_spent_this_year`
+            if state_spent_this_year == previous_state_for_counter:
+                agent_vars['anos_no_estado_cont'] += 1
+            else:
+                agent_vars['anos_no_estado_cont'] = 1
+            previous_state_for_counter = state_spent_this_year
+
+            categoria_estado_atual = get_state_category_for_growth(state_spent_this_year, current_states_df)
+
+            if categoria_estado_atual in ["grande_empresa_ti", "pequena_empresa_startup_ti"]:
+                agent_vars['exp_TI'] += 1
+            elif categoria_estado_atual == "outra_area":
+                agent_vars['exp_outra_area'] += 1
+            
+            if state_spent_this_year == 7: # Desempregado
+                agent_vars['desemp_acum'] += 1
+            
+            # Contar como "fora da área de TI" se não for explicitamente TI ou desempregado/estudante sem área
+            # (adapte esta lógica conforme a sua definição de "fora da área")
+            if categoria_estado_atual not in ["grande_empresa_ti", "pequena_empresa_startup_ti"] and \
+               state_spent_this_year not in [1,6,7]: # Exclui: Só faculdade TI, NNT, Desempregado
+                agent_vars['fora_TI_acum'] +=1
+
+
+            # 2. Determinar Próximo Estado (ainda usa a matriz P base)
+            probabilities = base_P[state_spent_this_year, :]
             if not np.isclose(np.sum(probabilities), 1.0):
-                if np.sum(probabilities) <= 0 : 
+                if np.sum(probabilities) <= 0: 
                     probabilities = np.zeros(n_total_states_run)
-                    probabilities[current_state] = 1.0
+                    probabilities[state_spent_this_year] = 1.0
                 else:
                     probabilities = probabilities / np.sum(probabilities)
-                
             next_state = np.random.choice(n_total_states_run, p=probabilities)
-            current_state = next_state
-            all_paths[sim, year + 1] = current_state
-            all_incomes[sim, year + 1] = current_states_df.loc[current_state, "Renda"]
+            all_paths[sim, year_idx + 1] = next_state
+
+            # 3. Calcular Salário para o `next_state` (ou seja, salário para o ano `year_idx + 1`)
+            new_salary_for_next_year = 0.0
+            piso_salarial_next_state = current_states_df.loc[next_state, "Renda"]
+
+            if state_allows_growth(next_state, current_states_df): # Se o próximo estado é um trabalho com crescimento
+                
+                # Caso 1: Permaneceu no mesmo estado de trabalho
+                if next_state == state_spent_this_year:
+                    base_growth_rate = growth_configs.get(get_state_category_for_growth(state_spent_this_year, current_states_df), 0.0)
+                    
+                    experience_bonus_rate = 0.0
+                    if agent_vars['anos_no_estado_cont'] > 0 and \
+                       agent_vars['anos_no_estado_cont'] % growth_configs.get('bonus_experiencia_marco_anos', 3) == 0:
+                        experience_bonus_rate = growth_configs.get('bonus_experiencia_valor_pc', 0.005)
+                    
+                    new_salary_for_next_year = salary_at_start_of_this_year * (1 + base_growth_rate + experience_bonus_rate)
+                
+                # Caso 2: Transitou para um NOVO estado de trabalho
+                else:
+                    salary_after_potential_promotion_bump = salary_at_start_of_this_year
+                    # Se veio de um estado que permite crescimento e foi promoção
+                    if state_allows_growth(state_spent_this_year, current_states_df) and \
+                       is_promotion(state_spent_this_year, next_state, current_states_df):
+                        salary_after_potential_promotion_bump = salary_at_start_of_this_year * (1 + growth_configs.get('aumento_promocao_pc', 0.10))
+                    
+                    # O novo salário é o maior entre o salário ajustado (pós-promoção) e o piso do novo estado
+                    new_salary_for_next_year = max(salary_after_potential_promotion_bump, piso_salarial_next_state)
+                    # Poderia também ser apenas o piso, ou o salário anterior se não for promoção.
+                    # Esta lógica pode ser refinada. Ex: se não é promoção, talvez seja só max(salario_anterior, piso_novo_estado)
+                    # Para simplificar: se mudou de emprego (estado de trabalho para estado de trabalho)
+                    # e não foi promoção, considera o salário anterior OU o piso do novo (o maior dos dois).
+                    if not is_promotion(state_spent_this_year, next_state, current_states_df) and \
+                        state_allows_growth(state_spent_this_year, current_states_df) : # Transição entre trabalhos, não promoção
+                        new_salary_for_next_year = max(salary_at_start_of_this_year, piso_salarial_next_state)
+
+
+            else: # Próximo estado não é de trabalho com crescimento (ex: desempregado, só estudando)
+                new_salary_for_next_year = piso_salarial_next_state # Geralmente 0 ou um valor fixo baixo
             
-    return all_paths, all_incomes
+            agent_vars['salario'] = new_salary_for_next_year # Atualiza o salário do agente para o próximo ano
+            all_incomes[sim, year_idx + 1] = agent_vars['salario']
+        
+        final_agent_histories.append(agent_vars) # Opcional: salvar histórico final
+            
+    return all_paths, all_incomes #, final_agent_histories
 
 def plot_expected_income(all_incomes_list, trajectory_names_list, ax=None, title_suffix=""):
     create_new_fig = ax is None
@@ -340,6 +466,41 @@ if page == "⚙️ Configurações":
             st.success(f"Matriz padrão para '{config_traj_name}' restaurada.")
             st.rerun() # Rerun para mostrar a matriz padrão no editor
 
+    st.markdown("---")
+    st.subheader("📈 Configurar Taxas de Crescimento Salarial e Bônus")
+    st.caption("Estas taxas são anuais. Ex: 0.05 para 5%.")
+
+    # Inicializar configs de crescimento no session_state se não existirem
+    default_growth_configs = {
+        'grande_empresa_ti': 0.07,
+        'pequena_empresa_startup_ti': 0.05,
+        'servico_publico': 0.02,
+        'outra_area': 0.03,
+        'bonus_experiencia_marco_anos': 3, # A cada X anos de experiência/casa
+        'bonus_experiencia_valor_pc': 0.005, # Bônus de X%
+        'aumento_promocao_pc': 0.10 # Aumento de X% ao ser promovido
+    }
+    if 'growth_configs' not in st.session_state:
+        st.session_state.growth_configs = default_growth_configs.copy()
+
+    gc = st.session_state.growth_configs # Alias para facilitar
+    cols_growth = st.columns(2)
+    with cols_growth[0]:
+        gc['grande_empresa_ti'] = st.number_input("Taxa Grande Empresa TI:", value=gc['grande_empresa_ti'], min_value=0.0, max_value=0.5, step=0.005, format="%.3f", key="gc_get")
+        gc['pequena_empresa_startup_ti'] = st.number_input("Taxa Pequena/Startup TI:", value=gc['pequena_empresa_startup_ti'], min_value=0.0, max_value=0.5, step=0.005, format="%.3f", key="gc_pet")
+        gc['servico_publico'] = st.number_input("Taxa Serviço Público:", value=gc['servico_publico'], min_value=0.0, max_value=0.5, step=0.005, format="%.3f", key="gc_sp")
+        gc['outra_area'] = st.number_input("Taxa Outra Área:", value=gc['outra_area'], min_value=0.0, max_value=0.5, step=0.005, format="%.3f", key="gc_oa")
+    with cols_growth[1]:
+        gc['bonus_experiencia_marco_anos'] = st.number_input("Bônus Experiência: Marco (anos):", value=gc['bonus_experiencia_marco_anos'], min_value=1, max_value=10, step=1, key="gc_bema")
+        gc['bonus_experiencia_valor_pc'] = st.number_input("Bônus Experiência: Valor (%):", value=gc['bonus_experiencia_valor_pc'], min_value=0.0, max_value=0.1, step=0.001, format="%.3f", key="gc_bevp")
+        gc['aumento_promocao_pc'] = st.number_input("Aumento Percentual por Promoção (%):", value=gc['aumento_promocao_pc'], min_value=0.0, max_value=0.5, step=0.01, format="%.2f", key="gc_app")
+
+    if st.button("Restaurar Taxas de Crescimento Padrão", key="reset_growth_configs"):
+        st.session_state.growth_configs = default_growth_configs.copy()
+        st.success("Taxas de crescimento padrão restauradas!")
+        st.rerun()
+
+
 
 # --- Página do Simulador ---
 elif page == "🚀 Simulador":
@@ -378,7 +539,8 @@ elif page == "🚀 Simulador":
     
     # Botão de Rodar Simulação
     if st.sidebar.button("📊 Rodar Simulação Agora", key="run_sim_button_main"):
-        df_states_for_sim = CURRENT_DF_STATES.copy() # Usa os salários atuais
+        df_states_for_sim = CURRENT_DF_STATES.copy()
+        current_growth_configs = st.session_state.growth_configs.copy() # Pega as configs atuais
         
         # Simulação para Trajetória 1
         initial_state_idx_1 = trajectories_options[sidebar_traj1_name]
@@ -387,7 +549,9 @@ elif page == "🚀 Simulador":
         st.subheader(f"Resultados para Trajetória 1: {sidebar_traj1_name}")
         with st.spinner(f"Rodando {sidebar_n_simul} simulações para {sidebar_traj1_name}..."):
             all_paths_1, all_incomes_1 = run_simulation(
-                initial_state_idx_1, P_base_1, df_states_for_sim, sidebar_n_simul, N_YEARS, N_CURRENT_STATES
+                initial_state_idx_1, P_base_1, df_states_for_sim, 
+                sidebar_n_simul, N_YEARS, N_CURRENT_STATES,
+                current_growth_configs # Passa as configs de crescimento
             )
 
         tab_titles_1 = ["📈 Renda Média", "📊 Dist. Estados", "SAL Dist. Renda", "👣 Caminhos", "🕸️ Grafo", "🎯 Renda Boa"]
@@ -407,7 +571,9 @@ elif page == "🚀 Simulador":
             st.markdown("---"); st.subheader(f"Comparação: {sidebar_traj1_name} vs {sidebar_traj2_name}")
             with st.spinner(f"Rodando {sidebar_n_simul} simulações para {sidebar_traj2_name}..."):
                 all_paths_2, all_incomes_2 = run_simulation(
-                    initial_state_idx_2, P_base_2, df_states_for_sim, sidebar_n_simul, N_YEARS, N_CURRENT_STATES
+                    initial_state_idx_2, P_base_2, df_states_for_sim, 
+                    sidebar_n_simul, N_YEARS, N_CURRENT_STATES,
+                    current_growth_configs # Passa as mesmas configs de crescimento para a comparação
                 )
             
             comp_tab_titles = ["📈 Rendas Médias Comp.", "📊 Estados Finais Comp.", "SAL Rendas Finais Comp.", "🎯 Renda Boa Comp."]
