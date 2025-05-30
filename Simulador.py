@@ -15,7 +15,7 @@ states_data = {
     2: {"Nome": "Faculdade comp. (trabalhando na área)", "Categoria": "Entrada", "Renda": 3500},
     3: {"Nome": "Faculdade comp. (fora da área)", "Categoria": "Entrada", "Renda": 2200},
     4: {"Nome": "Outra faculdade (trabalhando)", "Categoria": "Entrada", "Renda": 2000},
-    5: {"Nome": "Empreendendo (baixo capital)", "Categoria": "Entrada", "Renda": 1200},
+    5: {"Nome": "Empreendendo", "Categoria": "Entrada", "Renda": 1200},
     6: {"Nome": "Não estuda nem trabalha", "Categoria": "Entrada", "Renda": 0},
     7: {"Nome": "Desempregado", "Categoria": "Entrada", "Renda": 0},
     8: {"Nome": "Pequena empresa na área", "Categoria": "Progresso", "Renda": 2800},
@@ -69,26 +69,47 @@ def get_base_transition_matrix(trajectory_name):
         P[5, 5] = 0.4
         P[5, 8] = 0.2
         P[5, 9] = 0.1
-        P[5, 15] = 0.05 # Sucesso Elevado
         P[5, 7] = 0.2
-        P[5, 6] = 0.05
+        P[5, 6] = 0.049
+        P[5, 15] = 0.001 # Sucesso Elevado
     
+    # Não estuda nem trabalha
     P[6, 6] = 0.7
-    P[6, 7] = 0.1
-    P[6, 0] = 0.05
+    P[6, 0] = 0.1
+    P[6, 2] = 0.1
+    P[6, 4] = 0.0.5
     P[6, 5] = 0.05
+    # Desempregado
     P[7, 7] = 0.6
     P[7, 0] = 0.1
     P[7, 6] = 0.1
     P[7, 5] = 0.1
-
-    if P[5,15] == 0: P[5,15] = 0.05
-    P[8, 15] = 0.02
+    # Pequena empresa
+    P[8, 9]  = 0.10
+    P[8, 10] = 0.10
+    P[8, 15] = 0.01
+    # Startup
+    P[9, 7]  = 0.20
+    P[9, 10] = 0.10
+    P[9, 11] = 0.05
     P[9, 15] = 0.03
+    # Grande empresa
+    P[10, 7] = 0.05
+    P[10, 9] = 0.10
     P[10, 15] = 0.01
+    # Empresa Global
+    P[11, 7]  = 0.08
+    P[11, 9]  = 0.05
+    P[11, 10] = 0.05
     P[11, 15] = 0.02
+    # Pub. Municipal
+    P[12, 7]  = 0.001
     P[12, 15] = 0.001
+    # Pub. Estadual
+    P[13, 7]  = 0.001
     P[13, 15] = 0.002
+    # Pub. Federal
+    P[14, 7]  = 0.001
     P[14, 15] = 0.005
 
     for i in range(N_STATES):
