@@ -48,30 +48,37 @@ def get_base_transition_matrix(trajectory_name):
     for i in range(N_STATES):
         P[i, i] = 0.3
 
-    if trajectory_name == "Técnico e não faz faculdade":
-        P[0, 0] = 0.6
-        P[0, 8] = 0.1
-        P[0, 10] = 0.05
-        P[0, 7] = 0.1
-        P[0, 6] = 0.05
-        P[0, 5] = 0.05
-        P[0, 12] = 0.05
-    elif trajectory_name == "Faculdade de computação + trabalha na área":
-        P[2, 2] = 0.5
-        P[2, 10] = 0.2
-        P[2, 9] = 0.1
-        P[2, 11] = 0.05
-        P[2, 7] = 0.05
-        P[1, 2] = 0.4
-        P[1, 3] = 0.2
-        P[1, 1] = 0.3
-    elif trajectory_name == "Empreender (baixo capital)":
-        P[5, 5] = 0.4
-        P[5, 8] = 0.2
-        P[5, 9] = 0.1
-        P[5, 7] = 0.2
-        P[5, 6] = 0.049
-        P[5, 15] = 0.001 # Sucesso Elevado
+    # tecnixo
+    P[0, 0] = 0.6
+    P[0, 8] = 0.1
+    P[0, 10] = 0.05
+    P[0, 7] = 0.1
+    P[0, 6] = 0.05
+    P[0, 5] = 0.05
+    P[0, 12] = 0.05
+    # Faculdade sem trabalho
+    P[1, 2] = 0.4
+    P[1, 3] = 0.2
+    P[1, 1] = 0.3
+    # Faculdade de computação + trabalha na área
+    P[2, 2] = 0.5
+    P[2, 10] = 0.2
+    P[2, 9] = 0.1
+    P[2, 11] = 0.05
+    P[2, 7] = 0.05
+    # Faculdade + Trabalha fora da area
+    P[3, 2] = 0.20
+    P[3, 4] = 0.10
+    # faculdade de outra area
+    P[4,2] = 0.01
+    # Empreender
+    P[5, 5] = 0.45
+    P[5, 6] = 0.04
+    P[5, 7] = 0.20
+    P[5, 8] = 0.30
+    P[5, 9] = 0.05
+    P[5, 10] = 0.05
+    P[5, 15] = 0.01 # Sucesso Elevado
     
     # Não estuda nem trabalha
     P[6, 6] = 0.7
