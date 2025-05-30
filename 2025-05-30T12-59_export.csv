@@ -1,0 +1,18 @@
+﻿,0: Técnico trabalhando...,1: Faculdade de computa...,2: Faculdade comp. (tra...,3: Faculdade comp. (for...,4: Outra faculdade (tra...,5: Empreendendo (baixo ...,6: Não estuda nem traba...,7: Desempregado...,8: Pequena empresa na á...,9: Startup na área...,10: Grande empresa na ár...,11: Empresa global na ár...,12: Serviço público muni...,13: Serviço público esta...,14: Serviço público fede...,15: Sucesso elevado...,16: Trabalhar em outra á...
+0: Técnico trabalhando...,0,10,0,0,0,0.05,0.05,0.1,0.1,0,0.05,0,0.05,0,0,0,0.1
+1: Faculdade de computa...,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+2: Faculdade comp. (tra...,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+3: Faculdade comp. (for...,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0
+4: Outra faculdade (tra...,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0
+5: Empreendendo (baixo ...,0,0,0,0,0,0.95,0,0,0,0,0,0,0,0,0,0.05,0
+6: Não estuda nem traba...,0.05,0,0,0,0,0.05,0.7,0.1,0,0,0,0,0,0,0,0,0.1
+7: Desempregado...,0.1,0,0,0,0,0.1,0.1,0.5,0,0,0,0,0,0,0,0,0.2
+8: Pequena empresa na á...,0,0,0,0,0,0,0,0,0.98,0,0,0,0,0,0,0.02,0
+9: Startup na área...,0,0,0,0,0,0,0,0,0,0.97,0,0,0,0,0,0.03,0
+10: Grande empresa na ár...,0,0,0,0,0,0,0,0,0,0,0.99,0,0,0,0,0.01,0
+11: Empresa global na ár...,0,0,0,0,0,0,0,0,0,0,0,0.98,0,0,0,0.02,0
+12: Serviço público muni...,0,0,0,0,0,0,0,0,0,0,0,0,0.999,0,0,0.001,0
+13: Serviço público esta...,0,0,0,0,0,0,0,0,0,0,0,0,0,0.998,0,0.002,0
+14: Serviço público fede...,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0.995,0.005,0
+15: Sucesso elevado...,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0
+16: Trabalhar em outra á...,0.05,0,0,0,0,0.05,0.05,0.15,0,0,0,0,0.05,0,0,0.005,0.645
