@@ -304,6 +304,20 @@ selected_trajectory_name = st.sidebar.selectbox(
     list(trajectories_options.keys())
 )
 
+# NOVO: Input para definir "Renda Boa"
+renda_boa_threshold = st.sidebar.number_input(
+    "Defina o limiar para 'Renda Boa' (R$):", 
+    min_value=0, value=8000, step=500, format="%d"
+)
+
+# NOVO: Input para N_SIMULATIONS (opcional, mas bom para explorar precisão)
+n_simul_input = st.sidebar.number_input(
+    "Número de Simulações (Agentes):",
+    min_value=100, max_value=10000, value=N_SIMULATIONS, step=100,
+    help="Quanto maior, mais preciso o resultado, porém mais lento."
+)
+N_SIMULATIONS = n_simul_input # Atualiza a variável global
+
 st.sidebar.header("Comparação de Trajetórias")
 compare_mode = st.sidebar.checkbox("Ativar modo de comparação")
 selected_trajectory_name_2 = None
@@ -319,36 +333,96 @@ if compare_mode:
         st.sidebar.warning("Apenas uma trajetória disponível para seleção, não é possível comparar.")
         compare_mode = False # Desativa se não há o que comparar
 
-
 # --- Execução e Exibição ---
 if st.sidebar.button("🚀 Rodar Simulação"):
     initial_state_idx = trajectories_options[selected_trajectory_name]
     P_base_1 = get_base_transition_matrix(selected_trajectory_name)
     
     st.header(f"Resultados para: {selected_trajectory_name}")
-    all_paths_1, all_incomes_1 = run_simulation(initial_state_idx, P_base_1)
+    with st.spinner(f"Rodando {N_SIMULATIONS} simulações..."):
+        all_paths_1, all_incomes_1 = run_simulation(initial_state_idx, P_base_1)
 
-    tab1, tab2, tab3, tab4 = st.tabs(["📈 Curva de Renda", "📊 Distribuição Final", "👣 Caminhos Exemplo", "🕸️ Grafo de Transição"])
+    # Abas para organizar os resultados
+    tab_list = ["📈 Curva de Renda", "📊 Distribuição Final (Estados)", "SAL Distribuição Renda Final", "👣 Caminhos Exemplo", "🕸️ Grafo de Transição", "🎯 Análise de Renda Boa"] # Aba Adicionada
+    tabs = st.tabs(tab_list)
 
-    with tab1:
+    with tabs[0]: # Curva de Renda
         plot_expected_income(all_incomes_1, selected_trajectory_name)
-    with tab2:
+    with tabs[1]: # Distribuição Final (Estados)
         plot_final_state_distribution(all_paths_1, selected_trajectory_name)
-    with tab3:
+    
+    # NOVA ABA: Distribuição de Renda Final (Histograma)
+    with tabs[2]: 
+        st.subheader("Distribuição da Renda no Último Ano")
+        fig_hist_income, ax_hist_income = plt.subplots(figsize=(10,6))
+        # Usar KDE pode ser interessante também: sns.kdeplot(all_incomes_1[:, -1], ax=ax_hist_income, fill=True)
+        ax_hist_income.hist(all_incomes_1[:, -1], bins=30, edgecolor='black', alpha=0.7, density=True) # density=True para normalizar
+        ax_hist_income.set_xlabel("Renda no Último Ano (R$)")
+        ax_hist_income.set_ylabel("Densidade de Probabilidade")
+        ax_hist_income.set_title(f"Distribuição de Renda Final ({selected_trajectory_name})")
+        ax_hist_income.grid(axis='y', alpha=0.75)
+        # Adicionar linha da média e mediana
+        media_renda_final = np.mean(all_incomes_1[:, -1])
+        mediana_renda_final = np.median(all_incomes_1[:, -1])
+        ax_hist_income.axvline(media_renda_final, color='red', linestyle='dashed', linewidth=2, label=f'Média: R$ {media_renda_final:,.0f}'.replace(",", "."))
+        ax_hist_income.axvline(mediana_renda_final, color='green', linestyle='dashed', linewidth=2, label=f'Mediana: R$ {mediana_renda_final:,.0f}'.replace(",", "."))
+        ax_hist_income.legend()
+        st.pyplot(fig_hist_income)
+        st.caption(f"Análise baseada em {N_SIMULATIONS} simulações. A média da renda final foi de R\$ {media_renda_final:,.2f} e a mediana de R\$ {mediana_renda_final:,.2f}.".replace(",", "."))
+
+
+    with tabs[3]: # Caminhos Exemplo
         display_sample_paths(all_paths_1)
-    with tab4:
+    with tabs[4]: # Grafo de Transição
         plot_transition_graph_mpl(P_base_1, selected_trajectory_name)
 
-    final_states_1 = all_paths_1[:, -1]
-    success_freq_1 = np.sum(final_states_1 == 15) / N_SIMULATIONS
-    st.subheader(f"🌟 Frequência de 'Sucesso Elevado' ({selected_trajectory_name}): {success_freq_1:.2%}")
-    st.markdown(f"O estado 'Sucesso Elevado' (Renda: {df_states.loc[15, 'Renda']:,} BRL) representa uma ascensão profissional significativa. Esta frequência indica a proporção de simulações que alcançaram este estado após 10 anos.".replace(",", "."))
+    # NOVA ABA: Análise de Renda Boa
+    with tabs[5]:
+        st.subheader("Análise de 'Renda Boa' e Estados de Alta Renda")
+        
+        # 1. Chance de renda acima do limiar definido pelo usuário
+        renda_final_agentes = all_incomes_1[:, -1]
+        chance_renda_boa_limiar = np.sum(renda_final_agentes >= renda_boa_threshold) / N_SIMULATIONS
+        st.metric(
+            label=f"Chance de Renda Final ≥ R$ {renda_boa_threshold:,.0f}".replace(",", "."), 
+            value=f"{chance_renda_boa_limiar:.2%}"
+        )
+        st.write(f"Isso significa que, em {chance_renda_boa_limiar*100:.1f}% das {N_SIMULATIONS} simulações, o agente terminou o período de 10 anos com uma renda igual ou superior a R\$ {renda_boa_threshold:,.0f}.".replace(",", "."))
+        st.markdown("---")
 
+        # 2. Frequência do estado "Sucesso Elevado" (já existia, movido para cá)
+        final_states_1 = all_paths_1[:, -1]
+        success_freq_1 = np.sum(final_states_1 == 15) / N_SIMULATIONS
+        st.metric(
+            label=f"Chance de Terminar em 'Sucesso Elevado' (Estado 15 - Renda R\$ {df_states.loc[15, 'Renda']:,})".replace(",", "."),
+            value=f"{success_freq_1:.2%}"
+        )
+        st.markdown("---")
+
+        # 3. Chance de terminar em "Estados de Alta Renda" (além de "Sucesso Elevado")
+        # Definir quais são os estados de alta renda (excluindo o sucesso elevado já contabilizado)
+        estados_alta_renda_idx = [10, 11, 14] # Ex: Grande empresa, Empresa Global, Servidor Público Federal
+        nomes_estados_alta_renda = df_states.loc[estados_alta_renda_idx, "Nome"].tolist()
+        
+        final_states_agentes = all_paths_1[:, -1] # Já calculado
+        chance_estados_alta_renda = np.sum(np.isin(final_states_agentes, estados_alta_renda_idx)) / N_SIMULATIONS
+        
+        st.write(f"**Chance de Terminar em Outros Estados de Alta Renda Selecionados:**")
+        st.write(f"*Considerando os estados: {'; '.join(nomes_estados_alta_renda)}*")
+        st.metric(label="Probabilidade", value=f"{chance_estados_alta_renda:.2%}")
+
+
+    # Lógica de Comparação (se ativada)
     if compare_mode and selected_trajectory_name_2:
         st.header(f"Comparação: {selected_trajectory_name} vs {selected_trajectory_name_2}")
         initial_state_idx_2 = trajectories_options[selected_trajectory_name_2]
         P_base_2 = get_base_transition_matrix(selected_trajectory_name_2)
-        all_paths_2, all_incomes_2 = run_simulation(initial_state_idx_2, P_base_2)
+        with st.spinner(f"Rodando {N_SIMULATIONS} simulações para {selected_trajectory_name_2}..."):
+            all_paths_2, all_incomes_2 = run_simulation(initial_state_idx_2, P_base_2)
+
+        # ... (resto da lógica de comparação para Curva de Renda e Distribuição Final de Estados)
+        # Seria interessante adicionar a comparação da distribuição de renda final (histogramas) e
+        # as métricas de "Renda Boa" também na seção de comparação.
 
         col1, col2 = st.columns(2)
         with col1:
@@ -356,49 +430,46 @@ if st.sidebar.button("🚀 Rodar Simulação"):
             fig_comp_income, ax_comp_income = plt.subplots(figsize=(10,6))
             plot_expected_income(all_incomes_1, selected_trajectory_name, ax=ax_comp_income)
             plot_expected_income(all_incomes_2, selected_trajectory_name_2, ax=ax_comp_income)
-            ax_comp_income.set_xlabel("Ano")
-            ax_comp_income.set_ylabel("Renda Média Esperada (R$)")
-            ax_comp_income.set_title("Comparativo: Curvas de Renda Esperada")
-            ax_comp_income.grid(True)
-            ax_comp_income.legend()
+            ax_comp_income.set_xlabel("Ano"); ax_comp_income.set_ylabel("Renda Média Esperada (R$)")
+            ax_comp_income.set_title("Comparativo: Curvas de Renda Esperada"); ax_comp_income.grid(True); ax_comp_income.legend()
             st.pyplot(fig_comp_income)
 
-            final_states_2 = all_paths_2[:, -1]
-            success_freq_2 = np.sum(final_states_2 == 15) / N_SIMULATIONS
-            st.markdown(f"🌟 Frequência de 'Sucesso Elevado' ({selected_trajectory_name_2}): {success_freq_2:.2%}")
+            # Comparação da Chance de Renda Boa (limiar)
+            renda_final_agentes_2 = all_incomes_2[:, -1]
+            chance_renda_boa_limiar_2 = np.sum(renda_final_agentes_2 >= renda_boa_threshold) / N_SIMULATIONS
+            st.markdown(f"**Chance de Renda Final ≥ R\$ {renda_boa_threshold:,.0f} ({selected_trajectory_name_2})**: {chance_renda_boa_limiar_2:.2%}".replace(",", "."))
+
 
         with col2:
             st.subheader("Distribuições Finais de Estados")
             final_counts_1 = pd.Series(all_paths_1[:, -1]).value_counts(normalize=True).rename(selected_trajectory_name)
             final_counts_2 = pd.Series(all_paths_2[:, -1]).value_counts(normalize=True).rename(selected_trajectory_name_2)
-            
             df_compare_final = pd.concat([final_counts_1, final_counts_2], axis=1).fillna(0)
-            # Garantir que todos os estados estejam presentes para um índice consistente
             all_possible_states_idx = df_states.index
             df_compare_final = df_compare_final.reindex(all_possible_states_idx, fill_value=0)
-            df_compare_final = df_compare_final[(df_compare_final.T != 0).any()] # Remover linhas com soma zero
-            
+            df_compare_final = df_compare_final[(df_compare_final.T != 0).any()]
             df_compare_final.index = df_states.loc[df_compare_final.index, "Nome"]
-
-            fig_comp_dist, ax_comp_dist = plt.subplots(figsize=(12,8)) # Aumentar um pouco
+            fig_comp_dist, ax_comp_dist = plt.subplots(figsize=(12,8))
             df_compare_final.plot(kind='bar', ax=ax_comp_dist, width=0.8)
-            ax_comp_dist.set_xlabel("Estado Final")
-            ax_comp_dist.set_ylabel("Proporção de Agentes")
-            ax_comp_dist.set_title("Comparativo: Distribuição Final de Estados")
-            plt.xticks(rotation=60, ha="right") # Ajustar rotação para melhor visualização
-            plt.tight_layout()
-            st.pyplot(fig_comp_dist)
+            ax_comp_dist.set_xlabel("Estado Final"); ax_comp_dist.set_ylabel("Proporção de Agentes")
+            ax_comp_dist.set_title("Comparativo: Distribuição Final de Estados"); plt.xticks(rotation=60, ha="right"); plt.tight_layout(); st.pyplot(fig_comp_dist)
+            
+            # Comparação da Chance de Sucesso Elevado
+            final_states_2 = all_paths_2[:, -1] # já calculado acima
+            success_freq_2 = np.sum(final_states_2 == 15) / N_SIMULATIONS
+            st.markdown(f"**Chance de 'Sucesso Elevado' ({selected_trajectory_name_2})**: {success_freq_2:.2%}")
+
+
 else:
-    st.info("Escolha uma trajetória na barra lateral e clique em 'Rodar Simulação'.")
+    st.info("Escolha uma trajetória na barra lateral, ajuste as configurações e clique em 'Rodar Simulação'.")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("""
 **Sobre o Modelo:**
-- **Estados:** Representam sua condição profissional/educacional.
-- **Cadeia de Markov:** Um modelo que descreve sequências de eventos possíveis onde a probabilidade de cada evento depende apenas do estado atual.
-- **Não-Homogênea (Simplificado):** Idealmente, as probabilidades de transição mudariam a cada ano. Nesta simulação, a matriz de transição base de uma trajetória é a mesma ao longo dos 10 anos para simplificar.
-- **Dados:** As rendas são baseadas na descrição. As probabilidades de transição são **ilustrativas**.
+- **Simulação de Monte Carlo:** Múltiplas simulações aleatórias são executadas para estimar a distribuição dos resultados possíveis.
+- **Cadeia de Markov:** Descreve transições entre estados com base em probabilidades.
+- **Não-Homogênea (Simplificado):** Matriz de transição base é usada para todos os anos.
+- **Dados:** Rendas baseadas na descrição. Probabilidades de transição são **ilustrativas**.
 """)
 st.sidebar.markdown("---")
 st.sidebar.markdown("Desenvolvido como exemplo educacional.")
-
