@@ -514,7 +514,7 @@ elif page == "🚀 Simulador":
         key="sim_traj1_select"
     )
     sidebar_renda_boa_thresh = st.sidebar.number_input(
-        "Limiar 'Renda Boa' (R$):", 
+        "O que você considera uma 'Renda Boa' (R$):", 
         min_value=0, value=st.session_state.get('renda_boa_thresh_val', 8000), step=500, format="%d", key="sim_renda_boa_thresh"
     )
     st.session_state.renda_boa_thresh_val = sidebar_renda_boa_thresh # Salvar para persistir
