@@ -1,45 +1,28 @@
+"""
+Main Streamlit application file for the Career Path Simulator.
+
+This script orchestrates the user interface, manages session state,
+and calls core logic functions from the `core` package to run simulations
+and display results. It handles page navigation, user inputs, and the
+layout of different views (Simulator, Configurations).
+"""
 import streamlit as st
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import networkx as nx
 
-# --- Configurações e Dados Iniciais ---
-N_YEARS = 10
+from core.config import (
+    initial_states_data,
+    STATE_LABELS,
+    trajectories_options,
+    default_growth_configs,
+    N_YEARS
+)
 
-initial_states_data = {
-    0: {"Nome": "Técnico trabalhando", "Categoria": "Entrada", "Renda": 1500},
-    1: {"Nome": "Faculdade de computação (sem trabalho)", "Categoria": "Entrada", "Renda": 0},
-    2: {"Nome": "Faculdade comp. (trabalhando na área)", "Categoria": "Entrada", "Renda": 3500},
-    3: {"Nome": "Faculdade comp. (fora da área)", "Categoria": "Entrada", "Renda": 2200},
-    4: {"Nome": "Outra faculdade (trabalhando)", "Categoria": "Entrada", "Renda": 2000},
-    5: {"Nome": "Empreendendo (baixo capital)", "Categoria": "Entrada", "Renda": 1200},
-    6: {"Nome": "Não estuda nem trabalha", "Categoria": "Entrada", "Renda": 0},
-    7: {"Nome": "Desempregado", "Categoria": "Entrada", "Renda": 0},
-    8: {"Nome": "Pequena empresa na área", "Categoria": "Progresso", "Renda": 2800},
-    9: {"Nome": "Startup na área", "Categoria": "Progresso", "Renda": 4000},
-    10: {"Nome": "Grande empresa na área", "Categoria": "Progresso", "Renda": 6500},
-    11: {"Nome": "Empresa global na área", "Categoria": "Progresso", "Renda": 9000},
-    12: {"Nome": "Serviço público municipal", "Categoria": "Progresso", "Renda": 2500},
-    13: {"Nome": "Serviço público estadual", "Categoria": "Progresso", "Renda": 3500},
-    14: {"Nome": "Serviço público federal", "Categoria": "Progresso", "Renda": 5000},
-    15: {"Nome": "Sucesso elevado", "Categoria": "Sucesso extremo", "Renda": 20000},
-    16: {"Nome": "Trabalhar em outra área (não TI)", "Categoria": "Progresso", "Renda": 2300}
-}
+# --- Configurações e Dados Iniciais ---
 N_INITIAL_STATES = len(initial_states_data) # Deve ser 17
 
-# Nomes dos estados para rótulos de matriz
-STATE_LABELS = [f"{id}: {data['Nome'][:30]}..." for id, data in initial_states_data.items()]
-
-
-trajectories_options = {
-    "Técnico e não faz faculdade": 0,
-    "Faculdade de computação + trabalha na área": 2,
-    "Faculdade de computação + não trabalha na área": 1,
-    "Empreender (baixo capital)": 5,
-    "Faculdade outra área + trabalha": 4,
-    "Não estuda nem trabalha": 6
-}
 
 # --- INICIALIZAÇÃO GLOBAL DO SESSION STATE ---
 if 'editable_salaries' not in st.session_state:
@@ -49,349 +32,108 @@ if 'editable_salaries' not in st.session_state:
 if 'custom_transition_matrices' not in st.session_state:
     st.session_state.custom_transition_matrices = {}
 
-default_growth_configs = {
-    'grande_empresa_ti': 0.07,
-    'pequena_empresa_startup_ti': 0.05,
-    'servico_publico': 0.02,
-    'outra_area': 0.03,
-    'bonus_experiencia_marco_anos': 3, 
-    'bonus_experiencia_valor_pc': 0.005, 
-    'aumento_promocao_pc': 0.10 
-}
+# default_growth_configs já é importado
 if 'growth_configs' not in st.session_state:
     st.session_state.growth_configs = default_growth_configs.copy()
 # --- FIM DA INICIALIZAÇÃO GLOBAL DO SESSION STATE ---
 
+from core.simulation import (
+    get_default_base_transition_matrix,
+    get_matrix_for_simulation as get_matrix_for_simulation_core, # renamed to avoid conflict if we had a local one
+    normalize_matrix as normalize_matrix_core, # renamed
+    # get_state_category_for_growth, # These are used by run_simulation_core, no need to import here
+    # state_allows_growth,
+    # is_promotion,
+    run_simulation as run_simulation_core # renamed
+)
+
 # --- Funções do Modelo de Markov ---
-def get_default_base_transition_matrix(trajectory_name, n_total_states):
-    """Gera a matriz de transição PADRÃO baseada na lógica original."""
-    P = np.zeros((n_total_states, n_total_states))
+# Functions get_default_base_transition_matrix, get_matrix_for_simulation, normalize_matrix,
+# get_state_category_for_growth, state_allows_growth, is_promotion, and run_simulation
+# have been moved to core/simulation.py
 
-    # Definições base de transição (probabilidades ilustrativas)
-    if trajectory_name == "Técnico e não faz faculdade":
-        P[0, 0] = 0.5; P[0, 8] = 0.1; P[0, 10] = 0.05; P[0, 7] = 0.1; P[0, 6] = 0.05; P[0, 5] = 0.05; P[0, 12] = 0.05; P[0, 16] = 0.1
-    elif trajectory_name == "Faculdade de computação + trabalha na área": # Estado inicial 2
-        P[2, 2] = 0.5; P[2, 10] = 0.2; P[2, 9] = 0.1; P[2, 11] = 0.05; P[2, 7] = 0.05
-        P[1, 1] = 0.3; P[1, 2] = 0.4; P[1, 3] = 0.2 # Estado 1 (só faculdade)
-    elif trajectory_name == "Faculdade de computação + não trabalha na área": # Estado inicial 1
-        P[1, 1] = 0.4; P[1, 2] = 0.2; P[1, 3] = 0.2; P[1, 16]= 0.1; P[1, 7] = 0.1
-        P[3, 3] = 0.4; P[3, 16] = 0.2; P[3, 2] = 0.1; P[3, 7] = 0.1 # Estado 3 (faculdade + trabalho fora da área)
-    elif trajectory_name == "Empreender (baixo capital)":
-        P[5, 5] = 0.4; P[5, 8] = 0.2; P[5, 9] = 0.1; P[5, 7] = 0.2; P[5, 6] = 0.05
-    elif trajectory_name == "Faculdade outra área + trabalha":
-        P[4, 4] = 0.5; P[4, 16] = 0.3; P[4, 7] = 0.1; P[4, 12]= 0.05; P[4, 13]= 0.05
-    
-    P[6, 6] = 0.6; P[6, 7] = 0.1; P[6, 0] = 0.05; P[6, 5] = 0.05; P[6, 16] = 0.1
-    P[7, 7] = 0.5; P[7, 0] = 0.1; P[7, 6] = 0.1; P[7, 5] = 0.1; P[7, 16] = 0.2
-    P[16, 16] = 0.6; P[16, 7] = 0.15; P[16, 6] = 0.05; P[16, 0] = 0.05; P[16, 5] = 0.05; P[16, 12] = 0.05
+# --- Wrappers for Core Logic with Streamlit Caching/UI Interaction ---
 
-    # Probabilidades de alcançar "Sucesso Elevado" (Estado 15)
-    prob_sucesso = {5: 0.05, 8: 0.02, 9: 0.03, 10: 0.01, 11: 0.02, 12: 0.001, 13: 0.002, 14: 0.005, 16: 0.005}
-    for estado_origem, chance in prob_sucesso.items():
-        if estado_origem < n_total_states and 15 < n_total_states:
-             P[estado_origem, 15] = max(P[estado_origem, 15], chance)
-    
-    # Normalização Robusta
-    for i in range(n_total_states):
-        # Probabilidade de ficar no estado i (P[i,i]) é o que sobra depois de transitar para outros j != i
-        # Se P[i,i] não foi definida pela lógica da trajetória, ela será calculada aqui.
-        # Se P[i,i] FOI definida, e a soma das outras é X, então P[i,i] deve ser ajustada.
-        
-        # Salva o P[i,i] definido pela trajetória, se houver, caso contrário considera 0 para cálculo inicial
-        # A ideia é que P[i,i] definido pela trajetória tem precedência, e o resto é normalizado em volta.
-        # Mas para simplificar, vamos calcular P[i,i] como o restante.
-        
-        current_P_ii = P[i,i] # Salva se foi definido pela lógica da trajetória
-        P[i,i] = 0 # Zera P[i,i] temporariamente para calcular a soma das outras transições
-        sum_off_diagonal = np.sum(P[i, :]) # Soma de todas as P[i,j] onde j != i
-
-        if sum_off_diagonal >= 1.0:
-            if sum_off_diagonal > 0:
-                P[i, :] = P[i, :] / sum_off_diagonal # Normaliza P[i,j] para j!=i
-            P[i,i] = 0.0 # P[i,i] se torna 0
-        else:
-            # Se P[i,i] foi explicitamente definida E é maior que o que sobrou, algo está errado.
-            # Por agora, a lógica mais simples é: P[i,i] é o que falta para 1.
-            P[i,i] = 1.0 - sum_off_diagonal
-            
-        # Verificação final (raramente necessária se a lógica acima for correta)
-        final_row_sum = np.sum(P[i, :])
-        if not np.isclose(final_row_sum, 1.0):
-            if final_row_sum > 0: P[i, :] = P[i, :] / final_row_sum
-            else: P[i,i] = 1.0
-    return P
-
-def get_matrix_for_simulation(trajectory_name, n_total_states):
-    """Retorna a matriz customizada se existir, senão a padrão."""
-    if trajectory_name in st.session_state.custom_transition_matrices:
-        custom_P = st.session_state.custom_transition_matrices[trajectory_name]
-        if custom_P.shape == (n_total_states, n_total_states):
-            return custom_P.copy() 
-    return get_default_base_transition_matrix(trajectory_name, n_total_states)
-
-def normalize_matrix(matrix_df):
-    """Normaliza um DataFrame (representando a matriz P) para que as linhas somem 1."""
-    P_array = matrix_df.to_numpy(dtype=float)
-    # Garantir que não haja valores negativos antes da normalização
-    P_array[P_array < 0] = 0 
-    
-    for i in range(P_array.shape[0]):
-        row_sum = np.sum(P_array[i, :])
-        if row_sum > 0:
-            P_array[i, :] = P_array[i, :] / row_sum
-        else:
-            # Linha toda zero ou negativa, define P[i,i] = 1 como fallback seguro
-            P_array[i, :] = 0.0
-            if i < P_array.shape[1]: # Evitar erro se i for maior que colunas (não deve acontecer)
-                 P_array[i, i] = 1.0
-    return pd.DataFrame(P_array, index=matrix_df.index, columns=matrix_df.columns)
-
-# --- Funções Auxiliares para Lógica de Carreira Dinâmica (Fase 1) ---
-def get_state_category_for_growth(state_id, df_states_info):
-    # Mapeia o estado para uma categoria de crescimento salarial
-    nome_estado = df_states_info.loc[state_id, "Nome"].lower()
-    if state_id in [10, 11]: # Grande empresa, Empresa global
-        return "grande_empresa_ti"
-    elif state_id in [0, 2, 3, 8, 9]: # Técnico, Fac. Comp. Trab., Pequena Emp., Startup
-        return "pequena_empresa_startup_ti"
-    elif state_id in [12, 13, 14]: # Serviço Público Mun, Est, Fed
-        return "servico_publico"
-    elif state_id == 16: # Trabalhar em outra área (não TI)
-        return "outra_area"
-    elif state_id == 4: # Outra faculdade (trabalhando)
-         return "outra_area" 
-    return "sem_crescimento"
-
-def state_allows_growth(state_id, df_states_info):
-    return get_state_category_for_growth(state_id, df_states_info) != "sem_crescimento"
-
-def is_promotion(previous_state_id, current_state_id, df_states_info):
-    if not state_allows_growth(previous_state_id, df_states_info) or not state_allows_growth(current_state_id, df_states_info) :
-        return False 
-    if previous_state_id in [0,8,9] and current_state_id in [10,11]: return True
-    if previous_state_id == 12 and current_state_id in [13,14]: return True
-    if previous_state_id == 13 and current_state_id == 14: return True
-    if previous_state_id in [0,2,3] and current_state_id in [8,9,10,11]: return True
-    return False
-
+# Wrapper for run_simulation_core to apply caching
 @st.cache_data
-def run_simulation(initial_state_idx, base_P, current_states_df, 
-                   n_simulations_run, n_years_run, n_total_states_run,
-                   growth_configs): # Novas configurações de crescimento
-    
-    all_paths = np.zeros((n_simulations_run, n_years_run + 1), dtype=int)
-    all_incomes = np.zeros((n_simulations_run, n_years_run + 1))
-    
-    # Para análise futura, podemos querer armazenar o histórico final dos contadores
-    final_agent_histories = [] 
+def run_simulation_cached(
+    initial_state_idx, base_P, current_states_df,
+    n_simulations_run, n_years_run, n_total_states_run,
+    growth_configs
+):
+    """
+    Cached wrapper for the core `run_simulation_core` function.
+    Uses Streamlit's caching to avoid re-running simulations with the same inputs.
 
-    for sim in range(n_simulations_run):
-        # Inicializa variáveis do agente
-        agent_vars = {
-            'salario': current_states_df.loc[initial_state_idx, "Renda"],
-            'exp_TI': 0,
-            'exp_outra_area': 0,
-            'desemp_acum': 0,
-            'fora_TI_acum': 0, # Anos em estados que não são explicitamente "na área de TI"
-            'anos_no_estado_cont': 0
-        }
-        
-        current_agent_state = initial_state_idx
-        all_paths[sim, 0] = current_agent_state
-        all_incomes[sim, 0] = agent_vars['salario']
-        
-        previous_state_for_counter = -1 # Para rastrear mudança de estado para anos_no_estado_cont
+    Args:
+        initial_state_idx: The starting state index.
+        base_P: The base transition matrix.
+        current_states_df: DataFrame with current state information.
+        n_simulations_run: Number of simulations to run.
+        n_years_run: Number of years to simulate.
+        n_total_states_run: Total number of states.
+        growth_configs: Dictionary of growth configurations.
 
-        for year_idx in range(n_years_run): # Loop de 0 a N_YEARS-1 (total N_YEARS iterações)
-            # Estado em que o agente *passou* o ano `year_idx`
-            state_spent_this_year = all_paths[sim, year_idx]
-            salary_at_start_of_this_year = all_incomes[sim, year_idx]
+    Returns:
+        Tuple[np.ndarray, np.ndarray]: Result from `run_simulation_core`.
+    """
+    return run_simulation_core(
+        initial_state_idx, base_P, current_states_df,
+        n_simulations_run, n_years_run, n_total_states_run,
+        growth_configs
+    )
 
-            # 1. Atualizar Contadores de Histórico com base no `state_spent_this_year`
-            if state_spent_this_year == previous_state_for_counter:
-                agent_vars['anos_no_estado_cont'] += 1
-            else:
-                agent_vars['anos_no_estado_cont'] = 1
-            previous_state_for_counter = state_spent_this_year
+# Wrapper for normalize_matrix_core if it's used directly in Streamlit UI
+# If normalize_matrix is only used by other functions in core.simulation, this isn't needed here.
+# Based on current Simulador.py, normalize_matrix IS used in the UI.
+def normalize_matrix(matrix_df: pd.DataFrame) -> pd.DataFrame: # This wrapper remains as it's used in UI
+    """
+    UI wrapper for the core `normalize_matrix_core` function.
+    Ensures that matrix normalization logic called from the UI uses the
+    centralized function from the simulation core.
 
-            categoria_estado_atual = get_state_category_for_growth(state_spent_this_year, current_states_df)
+    Args:
+        matrix_df: Pandas DataFrame representing the matrix to be normalized.
 
-            if categoria_estado_atual in ["grande_empresa_ti", "pequena_empresa_startup_ti"]:
-                agent_vars['exp_TI'] += 1
-            elif categoria_estado_atual == "outra_area":
-                agent_vars['exp_outra_area'] += 1
-            
-            if state_spent_this_year == 7: # Desempregado
-                agent_vars['desemp_acum'] += 1
-            
-            # Contar como "fora da área de TI" se não for explicitamente TI ou desempregado/estudante sem área
-            # (adapte esta lógica conforme a sua definição de "fora da área")
-            if categoria_estado_atual not in ["grande_empresa_ti", "pequena_empresa_startup_ti"] and \
-               state_spent_this_year not in [1,6,7]: # Exclui: Só faculdade TI, NNT, Desempregado
-                agent_vars['fora_TI_acum'] +=1
+    Returns:
+        pd.DataFrame: The normalized matrix.
+    """
+    return normalize_matrix_core(matrix_df)
 
+# --- UI Plotting Function Imports ---
+from core.plotting import (
+    plot_expected_income,
+    plot_final_state_distribution,
+    plot_final_income_distribution_hist,
+    get_sample_paths_df, # Renamed from display_sample_paths
+    plot_transition_graph_mpl,
+    display_renda_boa_metrics
+)
 
-            # 2. Determinar Próximo Estado (ainda usa a matriz P base)
-            probabilities = base_P[state_spent_this_year, :]
-            if not np.isclose(np.sum(probabilities), 1.0):
-                if np.sum(probabilities) <= 0: 
-                    probabilities = np.zeros(n_total_states_run)
-                    probabilities[state_spent_this_year] = 1.0
-                else:
-                    probabilities = probabilities / np.sum(probabilities)
-            next_state = np.random.choice(n_total_states_run, p=probabilities)
-            all_paths[sim, year_idx + 1] = next_state
-
-            # 3. Calcular Salário para o `next_state` (ou seja, salário para o ano `year_idx + 1`)
-            new_salary_for_next_year = 0.0
-            piso_salarial_next_state = current_states_df.loc[next_state, "Renda"]
-
-            if state_allows_growth(next_state, current_states_df): # Se o próximo estado é um trabalho com crescimento
-                
-                # Caso 1: Permaneceu no mesmo estado de trabalho
-                if next_state == state_spent_this_year:
-                    base_growth_rate = growth_configs.get(get_state_category_for_growth(state_spent_this_year, current_states_df), 0.0)
-                    
-                    experience_bonus_rate = 0.0
-                    if agent_vars['anos_no_estado_cont'] > 0 and \
-                       agent_vars['anos_no_estado_cont'] % growth_configs.get('bonus_experiencia_marco_anos', 3) == 0:
-                        experience_bonus_rate = growth_configs.get('bonus_experiencia_valor_pc', 0.005)
-                    
-                    new_salary_for_next_year = salary_at_start_of_this_year * (1 + base_growth_rate + experience_bonus_rate)
-                
-                # Caso 2: Transitou para um NOVO estado de trabalho
-                else:
-                    salary_after_potential_promotion_bump = salary_at_start_of_this_year
-                    # Se veio de um estado que permite crescimento e foi promoção
-                    if state_allows_growth(state_spent_this_year, current_states_df) and \
-                       is_promotion(state_spent_this_year, next_state, current_states_df):
-                        salary_after_potential_promotion_bump = salary_at_start_of_this_year * (1 + growth_configs.get('aumento_promocao_pc', 0.10))
-                    
-                    # O novo salário é o maior entre o salário ajustado (pós-promoção) e o piso do novo estado
-                    new_salary_for_next_year = max(salary_after_potential_promotion_bump, piso_salarial_next_state)
-                    # Poderia também ser apenas o piso, ou o salário anterior se não for promoção.
-                    # Esta lógica pode ser refinada. Ex: se não é promoção, talvez seja só max(salario_anterior, piso_novo_estado)
-                    # Para simplificar: se mudou de emprego (estado de trabalho para estado de trabalho)
-                    # e não foi promoção, considera o salário anterior OU o piso do novo (o maior dos dois).
-                    if not is_promotion(state_spent_this_year, next_state, current_states_df) and \
-                        state_allows_growth(state_spent_this_year, current_states_df) : # Transição entre trabalhos, não promoção
-                        new_salary_for_next_year = max(salary_at_start_of_this_year, piso_salarial_next_state)
-
-
-            else: # Próximo estado não é de trabalho com crescimento (ex: desempregado, só estudando)
-                new_salary_for_next_year = piso_salarial_next_state # Geralmente 0 ou um valor fixo baixo
-            
-            agent_vars['salario'] = new_salary_for_next_year # Atualiza o salário do agente para o próximo ano
-            all_incomes[sim, year_idx + 1] = agent_vars['salario']
-        
-        final_agent_histories.append(agent_vars) # Opcional: salvar histórico final
-            
-    return all_paths, all_incomes #, final_agent_histories
-
-def plot_expected_income(all_incomes_list, trajectory_names_list, ax=None, title_suffix=""):
-    create_new_fig = ax is None
-    if create_new_fig: fig, ax = plt.subplots(figsize=(10, 6))
-    for idx, all_incomes in enumerate(all_incomes_list):
-        expected_income_per_year = np.mean(all_incomes, axis=0)
-        ax.plot(range(len(expected_income_per_year)), expected_income_per_year, marker='o', linestyle='-', label=trajectory_names_list[idx])
-    ax.set_xlabel("Ano"); ax.set_ylabel("Renda Média Esperada (R$)"); ax.set_title(f"Curva de Renda Esperada{title_suffix}"); ax.grid(True); ax.legend()
-    if create_new_fig: st.pyplot(fig)
-    return ax
-
-def plot_final_state_distribution(all_paths_list, trajectory_names_list, current_states_df, title_suffix=""):
-    if len(all_paths_list) == 1:
-        all_paths = all_paths_list[0]; trajectory_name = trajectory_names_list[0]
-        final_states = all_paths[:, -1]; state_counts = pd.Series(final_states).value_counts(normalize=True).sort_index()
-        valid_indices = [idx for idx in state_counts.index if idx in current_states_df.index]
-        state_labels = current_states_df.loc[valid_indices, "Nome"]; state_counts_filtered = state_counts.loc[valid_indices]
-        fig, ax_new = plt.subplots(figsize=(12, 7)); state_counts_filtered.plot(kind='bar', ax=ax_new)
-        ax_new.set_xticklabels(state_labels, rotation=45, ha="right"); ax_new.set_xlabel("Estado Final"); ax_new.set_ylabel("Proporção de Agentes")
-        ax_new.set_title(f"Distribuição Final de Estados: {trajectory_name}{title_suffix}"); plt.tight_layout(); st.pyplot(fig)
-    else:
-        counts_list = [pd.Series(ap[:, -1]).value_counts(normalize=True).rename(tn) for i, (ap, tn) in enumerate(zip(all_paths_list, trajectory_names_list))]
-        df_compare_final = pd.concat(counts_list, axis=1).fillna(0)
-        df_compare_final = df_compare_final.reindex(current_states_df.index, fill_value=0)
-        df_compare_final = df_compare_final[(df_compare_final.T != 0).any()]
-        if df_compare_final.empty: st.warning("Nenhum dado para comparação de estados finais."); return
-        df_compare_final.index = current_states_df.loc[df_compare_final.index, "Nome"]
-        fig_comp_dist, ax_comp_dist = plt.subplots(figsize=(12,8)); df_compare_final.plot(kind='bar', ax=ax_comp_dist, width=0.8)
-        ax_comp_dist.set_xlabel("Estado Final"); ax_comp_dist.set_ylabel("Proporção de Agentes"); ax_comp_dist.set_title(f"Comparativo: Distribuição Final de Estados{title_suffix}")
-        plt.xticks(rotation=60, ha="right"); plt.tight_layout(); st.pyplot(fig_comp_dist)
-
-def plot_final_income_distribution_hist(all_incomes_list, trajectory_names_list, title_suffix=""):
-    fig, ax = plt.subplots(figsize=(10, 6))
-    for i, all_incomes in enumerate(all_incomes_list):
-        renda_final = all_incomes[:, -1]; pd.Series(renda_final).plot(kind='kde', ax=ax, linestyle='--', label=f"{trajectory_names_list[i]} (KDE)")
-        ax.hist(renda_final, bins=30, edgecolor='black', alpha=0.5, density=True, label=f"{trajectory_names_list[i]} (Hist)") # Alpha reduzido
-    ax.set_xlabel("Renda no Último Ano (R$)"); ax.set_ylabel("Densidade"); ax.set_title(f"Distribuição de Renda Final{title_suffix}"); ax.grid(axis='y', alpha=0.75); ax.legend()
-    st.pyplot(fig)
-    for i, all_incomes in enumerate(all_incomes_list):
-        media_renda_final = np.mean(all_incomes[:, -1]); mediana_renda_final = np.median(all_incomes[:, -1])
-        st.caption(f"{trajectory_names_list[i].split(' ')[0][:10]} - Média: R$ {media_renda_final:,.0f}, Mediana: R$ {mediana_renda_final:,.0f}".replace(",", "."))
-
-def display_sample_paths(all_paths, current_states_df, n_years_run):
-    st.subheader("Exemplos de Caminhos Individuais (Top 20)"); sample_df = pd.DataFrame(all_paths[:20, :]).applymap(lambda x: f"{x}: {current_states_df.loc[x, 'Nome']}")
-    sample_df.columns = [f"Ano {i}" for i in range(n_years_run + 1)]; st.dataframe(sample_df)
-
-def plot_transition_graph_mpl(P_matrix, trajectory_name, current_states_df, n_total_states_run):
-    st.subheader(f"Grafo de Transição (Prob > 0.05): {trajectory_name}"); G = nx.DiGraph(); node_labels = {}; edge_labels = {}; nodes_in_graph = set()
-    for i in range(n_total_states_run):
-        is_sig_island = (P_matrix[i,i] > 0.05 and not np.any(P_matrix[i, np.arange(n_total_states_run) != i] > 0.05) and not np.any(P_matrix[np.arange(n_total_states_run) != i, i] > 0.05))
-        if np.any(P_matrix[i, :] > 0.05) or np.any(P_matrix[:, i] > 0.05) or is_sig_island: nodes_in_graph.add(i)
-    if not nodes_in_graph: st.warning("Nenhuma transição significativa no grafo."); return
-    for i in nodes_in_graph:
-        if i not in current_states_df.index: continue
-        G.add_node(i); node_labels[i] = f"{i}: {current_states_df.loc[i, 'Nome'][:20]}..."
-        for j in nodes_in_graph:
-            if P_matrix[i, j] > 0.05: G.add_edge(i, j, weight=P_matrix[i, j]); edge_labels[(i,j)] = f"{P_matrix[i, j]:.2f}"
-    if not G.nodes() or not G.edges(): st.warning("Nenhuma transição significativa no grafo (após filtro)."); return
-    fig, ax = plt.subplots(figsize=(18, 18))
-    try: pos = nx.kamada_kawai_layout(G)
-    except Exception: pos = nx.spring_layout(G, k=1.5/np.sqrt(len(G.nodes())) if len(G.nodes()) > 0 else 1, iterations=30)
-    nx.draw_networkx_nodes(G, pos, ax=ax, node_size=3500, node_color="skyblue", alpha=0.9)
-    nx.draw_networkx_edges(G, pos, ax=ax, edgelist=G.edges(), arrowstyle='-|>', arrowsize=20, edge_color="gray", alpha=0.7, node_size=3500)
-    nx.draw_networkx_labels(G, pos, labels=node_labels, ax=ax, font_size=9)
-    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, ax=ax, font_color='darkred', font_size=8)
-    ax.set_title(f"Grafo de Transição (Matplotlib): {trajectory_name}", fontsize=15); plt.axis('off'); st.pyplot(fig)
-
-def display_renda_boa_metrics(all_paths_data, all_incomes_data, trajectory_name_data, current_states_df_data, renda_boa_thresh_data, n_simulations_data, title_prefix=""):
-    st.subheader(f"{title_prefix}Análise de 'Renda Boa' para: {trajectory_name_data}")
-    renda_final_agentes = all_incomes_data[:, -1]
-    chance_renda_boa_limiar = np.sum(renda_final_agentes >= renda_boa_thresh_data) / n_simulations_data
-    st.metric(label=f"Chance Renda Final ≥ R$ {renda_boa_thresh_data:,.0f}".replace(",", "."), value=f"{chance_renda_boa_limiar:.2%}")
-    st.markdown("---")
-    final_states = all_paths_data[:, -1]
-    if 15 in current_states_df_data.index:
-        success_freq = np.sum(final_states == 15) / n_simulations_data
-        st.metric(label=f"Chance 'Sucesso Elevado' (Renda R$ {current_states_df_data.loc[15, 'Renda']:,})".replace(",", "."), value=f"{success_freq:.2%}")
-    st.markdown("---")
-    estados_alta_renda_idx = [idx for idx in [10, 11, 14] if idx in current_states_df_data.index]
-    if estados_alta_renda_idx:
-        nomes_estados_alta_renda = current_states_df_data.loc[estados_alta_renda_idx, "Nome"].tolist()
-        chance_estados_alta_renda = np.sum(np.isin(final_states, estados_alta_renda_idx)) / n_simulations_data
-        st.write(f"**Chance Outros Estados de Alta Renda:** ({'; '.join(nomes_estados_alta_renda)})")
-        st.metric(label="Probabilidade", value=f"{chance_estados_alta_renda:.2%}")
-
-
-# --- Interface Streamlit ---
+# --- Main Application Setup & UI Orchestration ---
 st.set_page_config(layout="wide", page_title="Simulador de Carreiras")
 
-# Navegação de Página
-page = st.sidebar.radio("Navegar para:", ["🚀 Simulador", "⚙️ Configurações"], horizontal=True)
+# --- Global State Initialization (Derived from Config & Session State) ---
+# Initialize editable salaries in session state if not already present
+if 'editable_salaries' not in st.session_state: # This check was already here, kept for clarity
+    st.session_state.editable_salaries = {
+        state_id: data["Renda"] for state_id, data in initial_states_data.items()
+    }
 
-# Construir DataFrame de estados dinâmico com base nos salários da sessão
-# Esta variável global será usada em ambas as páginas
+# DataFrame de estados dinâmico, construído com base nos salários editáveis da sessão
 CURRENT_DF_STATES = pd.DataFrame.from_dict({
     s_id: {
         "Nome": data["Nome"],
         "Categoria": data["Categoria"],
-        "Renda": st.session_state.editable_salaries.get(s_id, data["Renda"])
+        "Renda": st.session_state.editable_salaries.get(s_id, data["Renda"]) # Use .get for safety
     } for s_id, data in initial_states_data.items()
 }, orient='index')
-N_CURRENT_STATES = len(CURRENT_DF_STATES) # Número atual de estados (17)
+N_CURRENT_STATES = len(CURRENT_DF_STATES)
 
+# --- Page Navigation ---
+page = st.sidebar.radio("Navegar para:", ["🚀 Simulador", "⚙️ Configurações"], horizontal=True)
 
-# --- Página de Configurações ---
+# --- Page Specific Logic ---
 if page == "⚙️ Configurações":
     st.header("⚙️ Página de Configurações Avançadas")
     st.markdown("Ajuste os parâmetros base do simulador. As alterações são salvas automaticamente na sessão.")
@@ -436,7 +178,12 @@ if page == "⚙️ Configurações":
     )
 
     # Obter a matriz para edição: customizada ou padrão se não houver customização
-    matrix_to_edit_np = get_matrix_for_simulation(config_traj_name, N_CURRENT_STATES)
+    matrix_to_edit_np = get_matrix_for_simulation_core(
+        config_traj_name,
+        N_CURRENT_STATES,
+        st.session_state.custom_transition_matrices,
+        get_default_base_transition_matrix # Pass the function from core.simulation
+    )
     matrix_to_edit_df = pd.DataFrame(matrix_to_edit_np, index=STATE_LABELS, columns=STATE_LABELS)
 
     st.write(f"Editando Matriz para: **{config_traj_name}**")
@@ -470,18 +217,9 @@ if page == "⚙️ Configurações":
     st.subheader("📈 Configurar Taxas de Crescimento Salarial e Bônus")
     st.caption("Estas taxas são anuais. Ex: 0.05 para 5%.")
 
-    # Inicializar configs de crescimento no session_state se não existirem
-    default_growth_configs = {
-        'grande_empresa_ti': 0.07,
-        'pequena_empresa_startup_ti': 0.05,
-        'servico_publico': 0.02,
-        'outra_area': 0.03,
-        'bonus_experiencia_marco_anos': 3, # A cada X anos de experiência/casa
-        'bonus_experiencia_valor_pc': 0.005, # Bônus de X%
-        'aumento_promocao_pc': 0.10 # Aumento de X% ao ser promovido
-    }
-    if 'growth_configs' not in st.session_state:
-        st.session_state.growth_configs = default_growth_configs.copy()
+    # default_growth_configs já é importado
+    # if 'growth_configs' not in st.session_state: # Esta verificação já acontece mais acima globalmente
+    #     st.session_state.growth_configs = default_growth_configs.copy()
 
     gc = st.session_state.growth_configs # Alias para facilitar
     cols_growth = st.columns(2)
@@ -544,14 +282,19 @@ elif page == "🚀 Simulador":
         
         # Simulação para Trajetória 1
         initial_state_idx_1 = trajectories_options[sidebar_traj1_name]
-        P_base_1 = get_matrix_for_simulation(sidebar_traj1_name, N_CURRENT_STATES)
+        P_base_1 = get_matrix_for_simulation_core(
+            sidebar_traj1_name,
+            N_CURRENT_STATES,
+            st.session_state.custom_transition_matrices,
+            get_default_base_transition_matrix # Pass the function from core.simulation
+        )
         
         st.subheader(f"Resultados para Trajetória 1: {sidebar_traj1_name}")
         with st.spinner(f"Rodando {sidebar_n_simul} simulações para {sidebar_traj1_name}..."):
-            all_paths_1, all_incomes_1 = run_simulation(
+            all_paths_1, all_incomes_1 = run_simulation_cached( # Use the cached wrapper
                 initial_state_idx_1, P_base_1, df_states_for_sim, 
-                sidebar_n_simul, N_YEARS, N_CURRENT_STATES,
-                current_growth_configs # Passa as configs de crescimento
+                sidebar_n_simul, N_YEARS, N_CURRENT_STATES, # N_YEARS is from core.config
+                current_growth_configs
             )
 
         tab_titles_1 = ["📈 Renda Média", "📊 Dist. Estados", "SAL Dist. Renda", "👣 Caminhos", "🕸️ Grafo", "🎯 Renda Boa"]
@@ -559,21 +302,29 @@ elif page == "🚀 Simulador":
         with tabs_1[0]: plot_expected_income([all_incomes_1], [sidebar_traj1_name])
         with tabs_1[1]: plot_final_state_distribution([all_paths_1], [sidebar_traj1_name], df_states_for_sim)
         with tabs_1[2]: plot_final_income_distribution_hist([all_incomes_1], [sidebar_traj1_name])
-        with tabs_1[3]: display_sample_paths(all_paths_1, df_states_for_sim, N_YEARS)
+        with tabs_1[3]:
+            st.subheader("Exemplos de Caminhos Individuais (Top 20)")
+            sample_df_1 = get_sample_paths_df(all_paths_1, df_states_for_sim)
+            st.dataframe(sample_df_1)
         with tabs_1[4]: plot_transition_graph_mpl(P_base_1, sidebar_traj1_name, df_states_for_sim, N_CURRENT_STATES)
         with tabs_1[5]: display_renda_boa_metrics(all_paths_1, all_incomes_1, sidebar_traj1_name, df_states_for_sim, sidebar_renda_boa_thresh, sidebar_n_simul)
 
         # Simulação e Abas para Comparação (se ativado)
         if sim_compare_mode and sidebar_traj2_name:
             initial_state_idx_2 = trajectories_options[sidebar_traj2_name]
-            P_base_2 = get_matrix_for_simulation(sidebar_traj2_name, N_CURRENT_STATES)
+            P_base_2 = get_matrix_for_simulation_core(
+                sidebar_traj2_name,
+                N_CURRENT_STATES,
+                st.session_state.custom_transition_matrices,
+                get_default_base_transition_matrix # Pass the function from core.simulation
+            )
             
             st.markdown("---"); st.subheader(f"Comparação: {sidebar_traj1_name} vs {sidebar_traj2_name}")
             with st.spinner(f"Rodando {sidebar_n_simul} simulações para {sidebar_traj2_name}..."):
-                all_paths_2, all_incomes_2 = run_simulation(
+                all_paths_2, all_incomes_2 = run_simulation_cached( # Use the cached wrapper
                     initial_state_idx_2, P_base_2, df_states_for_sim, 
-                    sidebar_n_simul, N_YEARS, N_CURRENT_STATES,
-                    current_growth_configs # Passa as mesmas configs de crescimento para a comparação
+                    sidebar_n_simul, N_YEARS, N_CURRENT_STATES, # N_YEARS is from core.config
+                    current_growth_configs
                 )
             
             comp_tab_titles = ["📈 Rendas Médias Comp.", "📊 Estados Finais Comp.", "SAL Rendas Finais Comp.", "🎯 Renda Boa Comp."]
