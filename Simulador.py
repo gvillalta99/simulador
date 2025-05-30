@@ -34,7 +34,7 @@ N_STATES = len(df_states)
 trajectories_options = {
     "Técnico e não faz faculdade": 0,
     "Faculdade de computação + trabalha na área": 2,
-    "Faculdade de computação + não trabalha na área": 1, # Começa sem trabalho, pode evoluir para o estado 3
+    "Faculdade de computação + não trabalha na área": 1,
     "Empreender (baixo capital)": 5,
     "Faculdade outra área + trabalha": 4,
     "Não estuda nem trabalha": 6
@@ -42,109 +42,94 @@ trajectories_options = {
 
 # --- Funções do Modelo de Markov ---
 
-@st.cache_data # Cache para otimizar
+@st.cache_data
 def get_base_transition_matrix(trajectory_name):
-    """
-    Cria uma MATRIZ DE TRANSIÇÃO BASE para uma dada trajetória.
-    Para um modelo verdadeiramente não-homogêneo, esta função retornaria
-    uma LISTA de N_YEARS matrizes.
-    Aqui, para simplificar, criamos UMA matriz base.
-    As probabilidades são ILUSTRATIVAS e precisam de ajuste fino.
-    """
     P = np.zeros((N_STATES, N_STATES))
-
-    # Probabilidades base (genéricas - precisa de muita personalização)
-    # Manter-se no estado atual ou mover para estados adjacentes/prováveis
     for i in range(N_STATES):
-        P[i, i] = 0.3  # Chance base de permanecer no estado
+        P[i, i] = 0.3
 
-    # Exemplo para "Técnico e não faz faculdade" (inicia em 0)
     if trajectory_name == "Técnico e não faz faculdade":
-        P[0, 0] = 0.6  # Ficar como técnico
-        P[0, 8] = 0.1  # Ir para pequena empresa
-        P[0, 10] = 0.05 # Grande empresa (mais difícil)
-        P[0, 7] = 0.1  # Desempregar
-        P[0, 6] = 0.05 # Desistir
-        P[0, 5] = 0.05 # Tentar empreender
-        P[0, 12] = 0.05 # Servico publico municipal
-
-    # Exemplo para "Faculdade de computação + trabalha na área" (inicia em 2)
+        P[0, 0] = 0.6
+        P[0, 8] = 0.1
+        P[0, 10] = 0.05
+        P[0, 7] = 0.1
+        P[0, 6] = 0.05
+        P[0, 5] = 0.05
+        P[0, 12] = 0.05
     elif trajectory_name == "Faculdade de computação + trabalha na área":
-        P[2, 2] = 0.5 # Continuar faculdade + trabalho
-        P[2, 10] = 0.2 # Grande empresa após/durante faculdade
-        P[2, 9] = 0.1  # Startup
-        P[2, 11] = 0.05 # Empresa global
-        P[2, 7] = 0.05 # Desempregar
-        P[1, 2] = 0.4 # Se estava só na faculdade (estado 1), conseguir trabalho na área
-        P[1, 3] = 0.2 # Se estava só na faculdade (estado 1), conseguir trabalho fora da área
-        P[1, 1] = 0.3 # Continuar só faculdade
-
-    # Exemplo para "Empreender (baixo capital)" (inicia em 5)
+        P[2, 2] = 0.5
+        P[2, 10] = 0.2
+        P[2, 9] = 0.1
+        P[2, 11] = 0.05
+        P[2, 7] = 0.05
+        P[1, 2] = 0.4
+        P[1, 3] = 0.2
+        P[1, 1] = 0.3
     elif trajectory_name == "Empreender (baixo capital)":
-        P[5, 5] = 0.4  # Continuar empreendendo
-        P[5, 8] = 0.2  # Evoluir para pequena empresa
-        P[5, 9] = 0.1  # Evoluir para startup
-        P[5, 15] = 0.05 # Sucesso Elevado (5% ao ano, como especificado)
-        P[5, 7] = 0.2  # Falhar e desempregar
-        P[5, 6] = 0.05 # Desistir
-
-    # ... (Definir lógicas similares para outras trajetórias) ...
-
-    # Lógica para "Não estuda nem trabalha" (estado 6) e "Desempregado" (estado 7)
+        P[5, 5] = 0.4
+        P[5, 8] = 0.2
+        P[5, 9] = 0.1
+        P[5, 15] = 0.05 # Sucesso Elevado
+        P[5, 7] = 0.2
+        P[5, 6] = 0.05
+    
     P[6, 6] = 0.7
-    P[6, 7] = 0.1 # Pode virar desempregado procurando
-    P[6, 0] = 0.05 # Tentar ser técnico
-    P[6, 5] = 0.05 # Tentar empreender com baixo capital
+    P[6, 7] = 0.1
+    P[6, 0] = 0.05
+    P[6, 5] = 0.05
     P[7, 7] = 0.6
-    P[7, 0] = 0.1 # Conseguir vaga de técnico
-    P[7, 6] = 0.1 # Desistir de procurar
-    P[7, 5] = 0.1 # Tentar empreender
+    P[7, 0] = 0.1
+    P[7, 6] = 0.1
+    P[7, 5] = 0.1
 
-    # Probabilidades de alcançar "Sucesso Elevado" (Estado 15) de outros estados de progresso
-    # Estas são adicionais e podem sobrescrever ou complementar as anteriores
-    # Garantindo que não ultrapasse 100% na linha
-    if P[5,15] == 0: P[5,15] = 0.05 # Empreendedores de baixo capital (já definido acima, mas como exemplo)
-    P[8, 15] = 0.02  # Pequena empresa -> Sucesso
-    P[9, 15] = 0.03  # Startup -> Sucesso (1-3%)
-    P[10, 15] = 0.01 # Grande empresa -> Sucesso (<1%)
-    P[11, 15] = 0.02 # Empresa Global -> Sucesso (1-3%)
-    # Servidores públicos tem chance muito baixa de ir para "Sucesso Elevado" por esta via
+    if P[5,15] == 0: P[5,15] = 0.05
+    P[8, 15] = 0.02
+    P[9, 15] = 0.03
+    P[10, 15] = 0.01
+    P[11, 15] = 0.02
     P[12, 15] = 0.001
     P[13, 15] = 0.002
     P[14, 15] = 0.005
 
-    # Garantir que estados 8-15 não sejam pontos de entrada diretos (já tratado pela escolha inicial)
-    # Garantir que as linhas da matriz somem 1
     for i in range(N_STATES):
-        # Se alguma transição para estado de progresso/sucesso foi definida e não havia antes
         current_sum = np.sum(P[i, :])
-        if current_sum == 0: # Se não há transições definidas, fica no mesmo estado
+        if current_sum == 0:
             P[i, i] = 1.0
-        elif current_sum > 1.0: # Se a soma ultrapassou 1 devido às adições de "Sucesso Elevado"
-            # Reduzir proporcionalmente outras transições, exceto para o próprio estado e sucesso
-            # Esta é uma normalização simples, pode ser mais sofisticada
-            factor = (1.0 - P[i,i] - P[i,15]) / (current_sum - P[i,i] - P[i,15]) if (current_sum - P[i,i] - P[i,15]) > 0 else 0
-            for j in range(N_STATES):
-                if i != j and j != 15:
-                    P[i,j] *= factor
-            P[i,15] = min(P[i,15], 1.0 - P[i,i] - np.sum(P[i, [j for j in range(N_STATES) if j!=i and j!=15]]))
-
-
-        # Normalização final para garantir que a soma seja 1
+        elif current_sum > 1.0:
+            # Priorizar P[i,i] e P[i,15] se existirem, ajustar o resto
+            stay_prob = P[i,i]
+            success_prob = P[i,15]
+            other_sum = current_sum - stay_prob - success_prob
+            
+            if other_sum > 0:
+                target_other_sum = 1.0 - stay_prob - success_prob
+                if target_other_sum < 0: # Acontece se P[i,i] + P[i,15] > 1
+                    # Neste caso, precisa reduzir P[i,i] ou P[i,15] ou ambos
+                    # Simplificação: reduzir P[i,i] primeiro se P[i,i] não for a única > 0
+                    if stay_prob > 0 and (success_prob > 0 or other_sum > 0):
+                         P[i,i] = max(0, 1.0 - success_prob) # Reduz P[i,i]
+                         if P[i,i] + success_prob > 1.0: P[i,15] = 1.0 - P[i,i] # Garante que P[i,15] não exceda
+                    elif success_prob > 0 : # Se P[i,i] é 0, mas P[i,15] é > 1
+                        P[i,15] = 1.0
+                    # Zera os outros
+                    for j in range(N_STATES):
+                        if i != j and j != 15: P[i,j] = 0.0
+                else: # target_other_sum >=0
+                    factor = target_other_sum / other_sum
+                    for j in range(N_STATES):
+                        if i != j and j != 15:
+                            P[i,j] *= factor
+        
+        # Normalização final
         row_sum = np.sum(P[i, :])
         if row_sum > 0:
             P[i, :] = P[i, :] / row_sum
-        else: # Caso raro: se ainda for zero, fica no mesmo estado
+        else:
              P[i, i] = 1.0
     return P
 
 @st.cache_data
 def run_simulation(initial_state_idx, base_P):
-    """
-    Roda N_SIMULATIONS por N_YEARS.
-    Para não-homogêneo, base_P seria uma lista de matrizes [P_ano1, P_ano2, ...].
-    Aqui, usamos a mesma base_P para todos os anos.
-    """
     all_paths = np.zeros((N_SIMULATIONS, N_YEARS + 1), dtype=int)
     all_incomes = np.zeros((N_SIMULATIONS, N_YEARS + 1))
 
@@ -154,23 +139,13 @@ def run_simulation(initial_state_idx, base_P):
         all_incomes[sim, 0] = df_states.loc[current_state, "Renda"]
 
         for year in range(N_YEARS):
-            # Aqui seria P_t = list_of_P[year] para não-homogêneo
-            # Por simplificação, usamos a base_P
             P_t = base_P
-            
-            # Pequena variação anual para simular não-homogeneidade (opcional, exemplo simples)
-            # P_t_adjusted = P_t.copy()
-            # if year > 5 and current_state < 8: # Ex: após 5 anos, se ainda em estado de entrada, aumenta chance de mudar
-            #     P_t_adjusted[current_state, current_state] *= 0.9
-            #     # Re-normalizar linha P_t_adjusted[current_state,:]
-            #     row_sum = np.sum(P_t_adjusted[current_state, :])
-            #     if row_sum > 0: P_t_adjusted[current_state, :] /= row_sum
-            #     else: P_t_adjusted[current_state, current_state] = 1.0
-
-
             probabilities = P_t[current_state, :]
+            # Pequena verificação para garantir que as probabilidades somem 1 (devido a possíveis erros de ponto flutuante)
+            if not np.isclose(np.sum(probabilities), 1.0):
+                probabilities = probabilities / np.sum(probabilities)
+
             next_state = np.random.choice(N_STATES, p=probabilities)
-            
             current_state = next_state
             all_paths[sim, year + 1] = current_state
             all_incomes[sim, year + 1] = df_states.loc[current_state, "Renda"]
@@ -194,7 +169,6 @@ def plot_expected_income(all_incomes, trajectory_name, ax=None):
         ax.plot(range(N_YEARS + 1), expected_income_per_year, marker='o', linestyle='-', label=trajectory_name)
         return ax
 
-
 def plot_final_state_distribution(all_paths, trajectory_name, ax=None):
     final_states = all_paths[:, -1]
     state_counts = pd.Series(final_states).value_counts(normalize=True).sort_index()
@@ -210,7 +184,9 @@ def plot_final_state_distribution(all_paths, trajectory_name, ax=None):
         plt.tight_layout()
         st.pyplot(fig)
     else:
-        state_counts.plot(kind='bar', ax=ax, color=plt.gca().lines[-1].get_color() if plt.gca().lines else None, alpha=0.7) # Use last color
+        # Se for comparar, usar a cor da linha correspondente para a barra
+        bar_color = plt.gca().lines[-1].get_color() if plt.gca().lines else None
+        state_counts.plot(kind='bar', ax=ax, color=bar_color, alpha=0.7)
         ax.set_xticklabels(state_labels, rotation=45, ha="right")
         return ax
 
@@ -220,38 +196,47 @@ def display_sample_paths(all_paths):
     sample_df.columns = [f"Ano {i}" for i in range(N_YEARS + 1)]
     st.dataframe(sample_df)
 
-def plot_transition_graph(P_matrix, trajectory_name):
-    st.subheader(f"Grafo de Transição (Probabilidades > 0.05 para clareza): {trajectory_name}")
+def plot_transition_graph_mpl(P_matrix, trajectory_name):
+    st.subheader(f"Grafo de Transição (Probabilidades > 0.05): {trajectory_name}")
     G = nx.DiGraph()
+    node_labels = {}
     for i in range(N_STATES):
-        G.add_node(i, label=f"{i}:{df_states.loc[i, 'Nome'][:15]}...") # Nome curto para o label
+        # Adiciona nós apenas se eles participam de alguma transição significativa ou têm self-loop
+        has_significant_transition = np.any(P_matrix[i, :] > 0.05) or np.any(P_matrix[:, i] > 0.05)
+        if has_significant_transition:
+            G.add_node(i)
+            node_labels[i] = f"{i}: {df_states.loc[i, 'Nome'][:20]}..." # Nome mais curto
 
-    for i in range(N_STATES):
-        for j in range(N_STATES):
+    edge_labels = {}
+    for i in G.nodes(): # Itera sobre os nós adicionados ao grafo
+        for j in G.nodes():
             if P_matrix[i, j] > 0.05: # Limiar para não poluir o grafo
-                G.add_edge(i, j, weight=P_matrix[i, j], label=f"{P_matrix[i, j]:.2f}")
+                G.add_edge(i, j, weight=P_matrix[i, j])
+                edge_labels[(i,j)] = f"{P_matrix[i, j]:.2f}"
+    
+    if not G.nodes():
+        st.warning("Nenhuma transição significativa (>5%) para exibir no grafo para esta trajetória.")
+        return
 
-    # Tentar usar st.graphviz_chart
-    dot_string = "digraph {\n"
-    dot_string += 'node [shape=plaintext fontname="Helvetica"];\n' # Estilo para nós
-    for node, data in G.nodes(data=True):
-        dot_string += f'  {node} [label="{data["label"]}"];\n'
-    for u, v, data in G.edges(data=True):
-         dot_string += f'  {u} -> {v} [label="{data["label"]}", weight="{data["weight"]*10}"];\n' # weight para layout
-    dot_string += "}"
-
+    fig, ax = plt.subplots(figsize=(18, 18)) # Aumentar o tamanho da figura
+    
+    # Tentar um layout que espalhe mais os nós
     try:
-        st.graphviz_chart(dot_string)
-    except Exception as e:
-        st.warning(f"Não foi possível gerar o grafo com Graphviz: {e}. Desenhando com Matplotlib (mais simples).")
-        fig, ax = plt.subplots(figsize=(15, 15))
-        pos = nx.spring_layout(G, k=0.5, iterations=20) # Layout
-        labels = nx.get_node_attributes(G, 'label')
-        edge_labels = nx.get_edge_attributes(G, 'label')
-        nx.draw(G, pos, with_labels=True, labels=labels, node_size=3000, node_color="skyblue", font_size=8, ax=ax)
-        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_color='red', ax=ax)
-        ax.set_title(f"Grafo de Transição (Matplotlib): {trajectory_name}")
-        st.pyplot(fig)
+        # O layout 'kamada_kawai' pode ser bom para grafos menores e bem conectados.
+        # 'spring_layout' é mais geral.
+        pos = nx.kamada_kawai_layout(G) 
+    except Exception: # Fallback para spring_layout se kamada_kawai falhar (ex: grafo desconectado)
+        pos = nx.spring_layout(G, k=1.5/np.sqrt(len(G.nodes())) if len(G.nodes()) > 0 else 1, iterations=30)
+
+    nx.draw_networkx_nodes(G, pos, ax=ax, node_size=3500, node_color="skyblue", alpha=0.9)
+    nx.draw_networkx_edges(G, pos, ax=ax, edgelist=G.edges(), arrowstyle='-|>', arrowsize=20, 
+                           edge_color="gray", alpha=0.7, node_size=3500) # node_size aqui afeta o encurtamento da aresta
+    nx.draw_networkx_labels(G, pos, labels=node_labels, ax=ax, font_size=9)
+    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, ax=ax, font_color='darkred', font_size=8)
+    
+    ax.set_title(f"Grafo de Transição (Matplotlib): {trajectory_name}", fontsize=15)
+    plt.axis('off') # Desligar eixos
+    st.pyplot(fig)
 
 
 # --- Interface Streamlit ---
@@ -270,7 +255,6 @@ selected_trajectory_name = st.sidebar.selectbox(
     list(trajectories_options.keys())
 )
 
-# Para comparação
 st.sidebar.header("Comparação de Trajetórias")
 compare_mode = st.sidebar.checkbox("Ativar modo de comparação")
 selected_trajectory_name_2 = None
@@ -279,24 +263,22 @@ if compare_mode:
     if available_for_compare:
         selected_trajectory_name_2 = st.sidebar.selectbox(
             "Escolha a segunda trajetória para comparar:",
-            available_for_compare
+            available_for_compare,
+            index=0 # Default para o primeiro item diferente
         )
     else:
-        st.sidebar.warning("Apenas uma trajetória disponível para seleção.")
+        st.sidebar.warning("Apenas uma trajetória disponível para seleção, não é possível comparar.")
+        compare_mode = False # Desativa se não há o que comparar
 
 
 # --- Execução e Exibição ---
 if st.sidebar.button("🚀 Rodar Simulação"):
     initial_state_idx = trajectories_options[selected_trajectory_name]
-    
-    # Para simplificação, P_base é usada para todos os anos.
-    # Para não-homogêneo, P_base seria uma lista de 10 matrizes.
     P_base_1 = get_base_transition_matrix(selected_trajectory_name)
     
     st.header(f"Resultados para: {selected_trajectory_name}")
     all_paths_1, all_incomes_1 = run_simulation(initial_state_idx, P_base_1)
 
-    # Abas para organizar os resultados
     tab1, tab2, tab3, tab4 = st.tabs(["📈 Curva de Renda", "📊 Distribuição Final", "👣 Caminhos Exemplo", "🕸️ Grafo de Transição"])
 
     with tab1:
@@ -306,13 +288,12 @@ if st.sidebar.button("🚀 Rodar Simulação"):
     with tab3:
         display_sample_paths(all_paths_1)
     with tab4:
-        plot_transition_graph(P_base_1, selected_trajectory_name)
+        plot_transition_graph_mpl(P_base_1, selected_trajectory_name)
 
-    # Frequência de Sucesso Elevado
     final_states_1 = all_paths_1[:, -1]
     success_freq_1 = np.sum(final_states_1 == 15) / N_SIMULATIONS
     st.subheader(f"🌟 Frequência de 'Sucesso Elevado' ({selected_trajectory_name}): {success_freq_1:.2%}")
-    st.markdown(f"O estado 'Sucesso Elevado' (Renda: {df_states.loc[15, 'Renda']}) representa uma ascensão profissional significativa. Esta frequência indica a proporção de simulações que alcançaram este estado após 10 anos.")
+    st.markdown(f"O estado 'Sucesso Elevado' (Renda: {df_states.loc[15, 'Renda']:,} BRL) representa uma ascensão profissional significativa. Esta frequência indica a proporção de simulações que alcançaram este estado após 10 anos.".replace(",", "."))
 
     if compare_mode and selected_trajectory_name_2:
         st.header(f"Comparação: {selected_trajectory_name} vs {selected_trajectory_name_2}")
@@ -337,28 +318,27 @@ if st.sidebar.button("🚀 Rodar Simulação"):
             success_freq_2 = np.sum(final_states_2 == 15) / N_SIMULATIONS
             st.markdown(f"🌟 Frequência de 'Sucesso Elevado' ({selected_trajectory_name_2}): {success_freq_2:.2%}")
 
-
         with col2:
             st.subheader("Distribuições Finais de Estados")
-            # Para plotar lado a lado ou sobreposto, precisa de mais ajuste com Matplotlib
-            # Por simplicidade, vamos mostrar um após o outro ou criar um gráfico de barras agrupado
-            
-            # Criando dados para gráfico de barras agrupado
             final_counts_1 = pd.Series(all_paths_1[:, -1]).value_counts(normalize=True).rename(selected_trajectory_name)
             final_counts_2 = pd.Series(all_paths_2[:, -1]).value_counts(normalize=True).rename(selected_trajectory_name_2)
             
             df_compare_final = pd.concat([final_counts_1, final_counts_2], axis=1).fillna(0)
-            df_compare_final.index = df_states.loc[df_compare_final.index, "Nome"] # Nomes dos estados no índice
+            # Garantir que todos os estados estejam presentes para um índice consistente
+            all_possible_states_idx = df_states.index
+            df_compare_final = df_compare_final.reindex(all_possible_states_idx, fill_value=0)
+            df_compare_final = df_compare_final[(df_compare_final.T != 0).any()] # Remover linhas com soma zero
+            
+            df_compare_final.index = df_states.loc[df_compare_final.index, "Nome"]
 
-            fig_comp_dist, ax_comp_dist = plt.subplots(figsize=(12,7))
+            fig_comp_dist, ax_comp_dist = plt.subplots(figsize=(12,8)) # Aumentar um pouco
             df_compare_final.plot(kind='bar', ax=ax_comp_dist, width=0.8)
             ax_comp_dist.set_xlabel("Estado Final")
             ax_comp_dist.set_ylabel("Proporção de Agentes")
             ax_comp_dist.set_title("Comparativo: Distribuição Final de Estados")
-            plt.xticks(rotation=45, ha="right")
+            plt.xticks(rotation=60, ha="right") # Ajustar rotação para melhor visualização
             plt.tight_layout()
             st.pyplot(fig_comp_dist)
-
 else:
     st.info("Escolha uma trajetória na barra lateral e clique em 'Rodar Simulação'.")
 
@@ -367,8 +347,8 @@ st.sidebar.markdown("""
 **Sobre o Modelo:**
 - **Estados:** Representam sua condição profissional/educacional.
 - **Cadeia de Markov:** Um modelo que descreve sequências de eventos possíveis onde a probabilidade de cada evento depende apenas do estado atual.
-- **Não-Homogênea (Simplificado):** Idealmente, as probabilidades de transição mudariam a cada ano. Nesta simulação, a matriz de transição base de uma trajetória é a mesma ao longo dos 10 anos para simplificar, mas a estrutura do código `run_simulation` permitiria matrizes anuais diferentes.
-- **Dados:** As rendas são baseadas na descrição. As probabilidades de transição são **ilustrativas** e podem ser ajustadas para refletir dados reais.
+- **Não-Homogênea (Simplificado):** Idealmente, as probabilidades de transição mudariam a cada ano. Nesta simulação, a matriz de transição base de uma trajetória é a mesma ao longo dos 10 anos para simplificar.
+- **Dados:** As rendas são baseadas na descrição. As probabilidades de transição são **ilustrativas**.
 """)
 st.sidebar.markdown("---")
 st.sidebar.markdown("Desenvolvido como exemplo educacional.")
