@@ -6,7 +6,7 @@ import networkx as nx
 
 # --- Configurações e Dados Iniciais ---
 N_YEARS = 10
-N_SIMULATIONS = 1000  # Número de agentes simulados por trajetória
+N_SIMULATIONS = 10000  # Número de agentes simulados por trajetória
 
 # Definição dos Estados
 states_data = {
@@ -32,11 +32,12 @@ N_STATES = len(df_states)
 
 # Trajetórias Principais e seus estados iniciais
 trajectories_options = {
-    "Técnico e não faz faculdade": 0,
-    "Faculdade de computação + trabalha na área": 2,
+    "Trabalha como Técnico": 0,
     "Faculdade de computação + não trabalha na área": 1,
-    "Empreender (baixo capital)": 5,
-    "Faculdade outra área + trabalha": 4,
+    "Faculdade de computação + trabalha na área": 2,
+    "Faculdade outra área + trabalha na área": 3,
+    "Faculdade outra área + não trabalha na área": 4,
+    "Empreender": 5,
     "Não estuda nem trabalha": 6
 }
 
@@ -48,76 +49,96 @@ def get_base_transition_matrix(trajectory_name):
     for i in range(N_STATES):
         P[i, i] = 0.3
 
-    # tecnixo
-    P[0, 0] = 0.6
-    P[0, 8] = 0.1
-    P[0, 10] = 0.05
-    P[0, 7] = 0.1
-    P[0, 6] = 0.05
-    P[0, 5] = 0.05
-    P[0, 12] = 0.05
+    # Trabalhando como Tecnico
+    P[0, 0]     = 0.60
+    P[0, 1]     = 0.05
+    P[0, 2]     = 0.10
+    P[0, 5]     = 0.05
+    P[0, 6]     = 0.05
+    P[0, 7]     = 0.10
+    P[0, 8]     = 0.10
+    P[0, 10]    = 0.05
+    P[0, 12]    = 0.05
     # Faculdade sem trabalho
-    P[1, 2] = 0.4
-    P[1, 3] = 0.2
-    P[1, 1] = 0.3
+    P[1, 1]     = 0.05
+    P[1, 2]     = 0.50
+    P[1, 3]     = 0.20
+    P[1, 4]     = 0.05
+    P[1, 5]     = 0.10
+    P[1, 7]     = 0.10
     # Faculdade de computação + trabalha na área
-    P[2, 2] = 0.5
-    P[2, 10] = 0.2
-    P[2, 9] = 0.1
-    P[2, 11] = 0.05
-    P[2, 7] = 0.05
+    P[2, 1]     = 0.50
+    P[2, 2]     = 0.50
+    P[2, 7]     = 0.05
+    P[2, 9]     = 0.10
+    P[2, 10]    = 0.20
+    P[2, 11]    = 0.05
     # Faculdade + Trabalha fora da area
-    P[3, 2] = 0.20
-    P[3, 4] = 0.10
+    P[3, 2]     = 0.20
+    P[3, 4]     = 0.10
     # faculdade de outra area
-    P[4,2] = 0.01
+    P[4,2]      = 0.01
     # Empreender
-    P[5, 5] = 0.45
-    P[5, 6] = 0.04
-    P[5, 7] = 0.20
-    P[5, 8] = 0.30
-    P[5, 9] = 0.05
-    P[5, 10] = 0.05
-    P[5, 15] = 0.01 # Sucesso Elevado
+    P[5, 5]     = 0.45
+    P[5, 6]     = 0.04
+    P[5, 7]     = 0.20
+    P[5, 8]     = 0.30
+    P[5, 9]     = 0.05
+    P[5, 10]    = 0.05
+    P[5, 15]    = 0.01 # Sucesso Elevado
     
     # Não estuda nem trabalha
-    P[6, 6] = 0.7
-    P[6, 0] = 0.1
-    P[6, 2] = 0.1
-    P[6, 4] = 0.0.5
-    P[6, 5] = 0.05
+    P[6, 6]     = 0.70
+    P[6, 0]     = 0.10
+    P[6, 2]     = 0.10
+    P[6, 4]     = 0.05
+    P[6, 5]     = 0.05
     # Desempregado
-    P[7, 7] = 0.6
-    P[7, 0] = 0.1
-    P[7, 6] = 0.1
-    P[7, 5] = 0.1
+    P[7, 7]     = 0.60
+    P[7, 0]     = 0.10
+    P[7, 6]     = 0.10
+    P[7, 5]     = 0.10
     # Pequena empresa
-    P[8, 9]  = 0.10
-    P[8, 10] = 0.10
-    P[8, 15] = 0.01
+    P[8, 9]     = 0.10
+    P[8, 10]    = 0.10
+    P[8, 15]    = 0.01
     # Startup
-    P[9, 7]  = 0.20
-    P[9, 10] = 0.10
-    P[9, 11] = 0.05
-    P[9, 15] = 0.03
+    P[9, 7]     = 0.20
+    P[9, 10]    = 0.10
+    P[9, 11]    = 0.05
+    P[9, 15]    = 0.03
     # Grande empresa
-    P[10, 7] = 0.05
-    P[10, 9] = 0.10
-    P[10, 15] = 0.01
+    P[10, 7]    = 0.05
+    P[10, 9]    = 0.10
+    P[10, 15]   = 0.01
     # Empresa Global
-    P[11, 7]  = 0.08
-    P[11, 9]  = 0.05
-    P[11, 10] = 0.05
-    P[11, 15] = 0.02
+    P[11, 7]    = 0.08
+    P[11, 9]    = 0.05
+    P[11, 10]   = 0.05
+    P[11, 15]   = 0.02
     # Pub. Municipal
-    P[12, 7]  = 0.001
-    P[12, 15] = 0.001
+    P[12, 7]    = 0.001
+    P[12, 12]   = 0.80
+    P[12, 13]   = 0.12
+    P[12, 14]   = 0.078
+    P[12, 15]   = 0.001
     # Pub. Estadual
     P[13, 7]  = 0.001
+    P[13, 12] = 0.047
+    P[13, 13] = 0.85
+    P[13, 14] = 0.10
     P[13, 15] = 0.002
     # Pub. Federal
     P[14, 7]  = 0.001
+    P[14, 12] = 0.044
+    P[14, 13] = 0.05
+    P[14, 14] = 0.90
     P[14, 15] = 0.005
+
+    # Grande Sucesso
+    P[15, 7]  = 0.05
+    P[15, 10] = 0.10
+    P[15, 15] = 0.70
 
     for i in range(N_STATES):
         current_sum = np.sum(P[i, :])
